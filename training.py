@@ -52,7 +52,7 @@ def send_email(subject, body, to_email, attachment_path=None):
 # Exibe a logo da empresa
 # ========================
 st.image("logoYP.png", width=200, caption="Yinson Production")
-
+st.sidebar.image("logoYP.png", width=200, caption="Yinson Production")
 # ========================
 # Configuração do Banco de Dados
 # ========================
