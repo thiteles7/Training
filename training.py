@@ -311,7 +311,7 @@ if st.session_state.get('logged_in'):
                                            file_name=f"Status_Treinamento_{datetime.now().strftime('%Y-%m-%d')}.xlsx",
                                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         
-        else:  # Opção "Usar Último Upload"
+        else:  # Opção "Usar Último Upload" com opção de substituir arquivos individualmente
             upload_dir = "uploaded_files"
             if not os.path.exists(upload_dir):
                 st.error("Nenhum upload encontrado. Por favor, faça um novo upload.")
@@ -324,7 +324,6 @@ if st.session_state.get('logged_in'):
                     # Ordena as sessões com base no nome (assumindo que o nome é o timestamp)
                     last_session = sorted(sessions)[-1]
                     last_session_name = os.path.basename(last_session)
-                    # Tenta converter o nome da sessão em data legível
                     try:
                         last_upload_date = datetime.strptime(last_session_name, "%Y%m%d%H%M%S")
                         last_upload_date_str = last_upload_date.strftime("%Y-%m-%d %H:%M:%S")
@@ -336,19 +335,44 @@ if st.session_state.get('logged_in'):
                     files_available = os.listdir(last_session)
                     st.write(files_available)
                     
+                    st.markdown("### Substituir arquivos (opcional)")
+                    team_file_new = st.file_uploader("Substituir Team.xlsx", type=["xlsx"], key="team_replace")
+                    train_file_new = st.file_uploader("Substituir Treinamentos.xlsx", type=["xlsx"], key="train_replace")
+                    control_file_new = st.file_uploader("Substituir Controle.xlsx", type=["xlsx"], key="control_replace")
+                    training_type_file_new = st.file_uploader("Substituir Listagem Tipo Treinamento (opcional)", type=["xlsx"], key="training_type_replace")
+                    unisea_file_new = st.file_uploader("Substituir Planilha Unisea (opcional)", type=["xlsx"], key="unisea_replace")
+                    
                     fuzzy_threshold = st.number_input("Threshold Fuzzy:", min_value=0, max_value=100, value=80)
                     if st.button("Processar Dados do Último Upload"):
+                        # Para cada arquivo, se um novo arquivo for enviado, salva-o; caso contrário, usa o arquivo salvo anteriormente
                         team_path = os.path.join(last_session, "Team.xlsx")
+                        if team_file_new is not None:
+                            with open(team_path, "wb") as f:
+                                f.write(team_file_new.getbuffer())
                         train_path = os.path.join(last_session, "Treinamentos.xlsx")
+                        if train_file_new is not None:
+                            with open(train_path, "wb") as f:
+                                f.write(train_file_new.getbuffer())
                         control_path = os.path.join(last_session, "Controle.xlsx")
+                        if control_file_new is not None:
+                            with open(control_path, "wb") as f:
+                                f.write(control_file_new.getbuffer())
                         training_type_path = os.path.join(last_session, "Listagem_Tipo_Treinamento.xlsx")
+                        if training_type_file_new is not None:
+                            with open(training_type_path, "wb") as f:
+                                f.write(training_type_file_new.getbuffer())
+                        else:
+                            if not os.path.exists(training_type_path):
+                                training_type_path = None
                         unisea_path = os.path.join(last_session, "Planilha_Unisea.xlsx")
-                        # Se os arquivos opcionais não existirem, define como None
-                        if not os.path.exists(training_type_path):
-                            training_type_path = None
-                        if not os.path.exists(unisea_path):
-                            unisea_path = None
-                        # Processa os dados a partir dos arquivos salvos
+                        if unisea_file_new is not None:
+                            with open(unisea_path, "wb") as f:
+                                f.write(unisea_file_new.getbuffer())
+                        else:
+                            if not os.path.exists(unisea_path):
+                                unisea_path = None
+                        
+                        # Processa os dados usando os arquivos (antigos ou substituídos)
                         df_final = process_data(team_path, train_path, control_path, training_type_path, unisea_path, fuzzy_threshold)
                         if df_final is not None:
                             st.session_state.df_final = df_final
