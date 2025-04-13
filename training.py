@@ -8,6 +8,8 @@ import re
 import unicodedata
 import os
 from rapidfuzz import fuzz
+# Exibe a logo da empresa no topo
+st.image("logoYP.png", width=200, caption="Yinson Production")
 
 # ========================
 # Configuração do Banco de Dados
