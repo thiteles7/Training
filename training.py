@@ -21,7 +21,7 @@ from email.mime.application import MIMEApplication
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
 SMTP_USERNAME = "seuemail@gmail.com"      # Altere para seu e-mail
-SMTP_PASSWORD = "suasenha"                  # Altere para sua senha ou app password
+SMTP_PASSWORD = "suasenha"                  # Altere para sua senha (ou app password)
 EMAIL_RECIPIENT = "destinatario@exemplo.com"  # E-mail que receberá a notificação
 
 def send_email(subject, body, to_email, attachment_path=None):
@@ -61,7 +61,7 @@ DB_PATH = "report_history.db"
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    # Cria a tabela de histórico e de usuários (incluindo a coluna last_access)
+    # Cria a tabela de histórico (se não existir)
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS report_history (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -72,14 +72,21 @@ def init_db():
         user TEXT
     )
     """)
+    # Cria a tabela de usuários, se não existir
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS users (
         username TEXT PRIMARY KEY,
-        password TEXT,
-        last_access TEXT
+        password TEXT
     )
     """)
-    # Insere usuários padrão (last_access será None inicialmente)
+    # Tenta adicionar a coluna last_access se ela ainda não existir
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN last_access TEXT")
+    except Exception as e:
+        # Se ocorrer erro (por exemplo, coluna já existe), ignora
+        pass
+
+    # Insere usuários padrão (INSERT OR IGNORE para evitar duplicatas)
     cursor.execute("INSERT OR IGNORE INTO users (username, password, last_access) VALUES (?, ?, ?)", ("admin", "1234", None))
     cursor.execute("INSERT OR IGNORE INTO users (username, password, last_access) VALUES (?, ?, ?)", ("thiago", "fpsonery", None))
     conn.commit()
@@ -318,15 +325,12 @@ if st.session_state.get('logged_in'):
     
     # Menu de navegação
     pages = ["Relatório", "Filtros", "Visualização", "Tabela Completa", "Uploads Salvos", "Histórico"]
-    # Debug: mostrar usuário logado
     st.sidebar.write("Usuário logado:", st.session_state.username)
-    # Se o usuário for admin (independente de maiúsculas ou minúsculas), adiciona a aba de gerenciamento de usuários
     if st.session_state.username.lower() == "admin":
         pages.append("Admin")
     
     page = st.sidebar.radio("Selecione a página", pages)
     
-    # Guarda o DataFrame processado
     if 'df_final' not in st.session_state:
         st.session_state.df_final = None
 
@@ -399,12 +403,11 @@ if st.session_state.get('logged_in'):
                                            file_name=f"Status_Treinamento_Completo_{datetime.now().strftime('%Y-%m-%d')}.xlsx",
                                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
                         
-                        # Envio automático de e-mail
                         email_subject = "Relatório de Treinamento Finalizado"
                         email_body = "O relatório foi processado com sucesso. Em anexo, o arquivo final."
                         send_email(email_subject, email_body, EMAIL_RECIPIENT, attachment_path=final_data_path)
         
-        else:  # Usar Último Upload (com opção de substituir arquivos individualmente)
+        else:  # Usar Último Upload com substituição individual
             upload_dir = "uploaded_files"
             if not os.path.exists(upload_dir):
                 st.error("Nenhum upload encontrado. Por favor, faça um novo upload.")
@@ -620,11 +623,9 @@ if st.session_state.get('logged_in'):
             st.dataframe(df_users)
             
             st.subheader("Excluir Usuário")
-            # Lista os usuários (opcionalmente não permitir a exclusão do próprio admin)
             users_list = df_users['username'].tolist()
             user_to_delete = st.selectbox("Selecione um usuário para excluir", users_list)
             if st.button("Excluir Usuário"):
-                # Opcional: impedir a deleção do usuário admin
                 if user_to_delete.lower() == "admin":
                     st.error("Não é permitido excluir o usuário admin.")
                 else:
