@@ -49,7 +49,7 @@ def send_email(subject, body, to_email, attachment_path=None):
         st.error(f"Erro ao enviar e-mail: {e}")
 
 # ========================
-# Exibe a logo da empresa (opcional: ajuste o caminho, se necessário)
+# Exibe a logo da empresa
 # ========================
 st.image("logoYP.png", width=200, caption="Yinson Production")
 
@@ -61,6 +61,7 @@ DB_PATH = "report_history.db"
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
+    # Cria a tabela de histórico e de usuários (incluindo a coluna last_access)
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS report_history (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -74,12 +75,21 @@ def init_db():
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS users (
         username TEXT PRIMARY KEY,
-        password TEXT
+        password TEXT,
+        last_access TEXT
     )
     """)
-    # Insere usuários padrão
-    cursor.execute("INSERT OR IGNORE INTO users (username, password) VALUES (?, ?)", ("admin", "1234"))
-    cursor.execute("INSERT OR IGNORE INTO users (username, password) VALUES (?, ?)", ("thiago", "fpsonery"))
+    # Insere usuários padrão (last_access será None inicialmente)
+    cursor.execute("INSERT OR IGNORE INTO users (username, password, last_access) VALUES (?, ?, ?)", ("admin", "1234", None))
+    cursor.execute("INSERT OR IGNORE INTO users (username, password, last_access) VALUES (?, ?, ?)", ("thiago", "fpsonery", None))
+    conn.commit()
+    conn.close()
+
+def update_last_access(username):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    cursor.execute("UPDATE users SET last_access = ? WHERE username = ?", (timestamp, username))
     conn.commit()
     conn.close()
 
@@ -101,6 +111,35 @@ def log_report(report_type, file_name, filter_options="", user="Desconhecido"):
     """, (timestamp, report_type, file_name, filter_options, user))
     conn.commit()
     conn.close()
+
+# Funções para gerenciamento de usuários pelo admin
+def add_user(username, password):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("INSERT INTO users (username, password, last_access) VALUES (?, ?, ?)", (username, password, None))
+        conn.commit()
+    except Exception as e:
+        st.error(f"Erro ao cadastrar usuário: {e}")
+    finally:
+        conn.close()
+
+def delete_user(username):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("DELETE FROM users WHERE username = ?", (username,))
+        conn.commit()
+    except Exception as e:
+        st.error(f"Erro ao deletar usuário: {e}")
+    finally:
+        conn.close()
+
+def get_all_users():
+    conn = sqlite3.connect(DB_PATH)
+    df = pd.read_sql_query("SELECT username, password, last_access FROM users", conn)
+    conn.close()
+    return df
 
 # ========================
 # Funções Utilitárias
@@ -197,7 +236,7 @@ def process_data(team_file, train_file, control_file, training_type_file=None, u
         df_result[['control_status', 'control_data_completo', 'control_nome', 'control_rev', 'match_score']] = df_result.apply(match_control, axis=1)
         df_result['inconsistencia'] = df_result['control_status'].isnull() | (df_result['match_score'] < 100)
 
-        # Se fornecido, processa o arquivo de Tipo de Treinamento
+        # Processa o arquivo de Tipo de Treinamento (opcional)
         if training_type_file is not None:
             df_type = pd.read_excel(training_type_file).iloc[:, :3]
             df_type.columns = ['procedimento_num_en_type', 'procedimento_num_pt_type', 'categoria']
@@ -212,7 +251,7 @@ def process_data(team_file, train_file, control_file, training_type_file=None, u
         else:
             df_result['categoria'] = None
 
-        # Se fornecido, processa o arquivo Unisea
+        # Processa o arquivo Unisea (opcional)
         if unisea_file is not None:
             df_unisea = pd.read_excel(unisea_file)
             df_unisea = df_unisea.rename(columns={df_unisea.columns[0]: 'procedimento_num_unisea',
@@ -266,6 +305,7 @@ if not st.session_state.logged_in:
         if check_login(username, password):
             st.session_state.logged_in = True
             st.session_state.username = username
+            update_last_access(username)
             st.success("Login realizado com sucesso!")
         else:
             st.error("Credenciais inválidas!")
@@ -276,18 +316,21 @@ if not st.session_state.logged_in:
 if st.session_state.get('logged_in'):
     st.title(f"Relatório de Treinamento - FPSO | Logado como: {st.session_state.username}")
     
-    # Menu de navegação - adicionamos novas páginas: "Uploads Salvos" e "Admin"
+    # Menu de navegação
     pages = ["Relatório", "Filtros", "Visualização", "Tabela Completa", "Uploads Salvos", "Histórico"]
-    # Se o usuário for admin, adicionamos a página de administração
-    if st.session_state.username == "admin":
+    # Debug: mostrar usuário logado
+    st.sidebar.write("Usuário logado:", st.session_state.username)
+    # Se o usuário for admin (independente de maiúsculas ou minúsculas), adiciona a aba de gerenciamento de usuários
+    if st.session_state.username.lower() == "admin":
         pages.append("Admin")
+    
     page = st.sidebar.radio("Selecione a página", pages)
     
-    # Variável para guardar o dataframe processado
+    # Guarda o DataFrame processado
     if 'df_final' not in st.session_state:
         st.session_state.df_final = None
 
-    # ----- Página Relatório (Upload + Exportação completa + envio de e-mail) -----
+    # ----- Página Relatório (Upload + exportação + e-mail) -----
     if page == "Relatório":
         st.header("Upload dos Arquivos")
         upload_option = st.radio("Selecione a opção", ["Novo Upload", "Usar Último Upload"])
@@ -356,12 +399,12 @@ if st.session_state.get('logged_in'):
                                            file_name=f"Status_Treinamento_Completo_{datetime.now().strftime('%Y-%m-%d')}.xlsx",
                                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
                         
-                        # Envio automático de e-mail com o relatório anexado
+                        # Envio automático de e-mail
                         email_subject = "Relatório de Treinamento Finalizado"
                         email_body = "O relatório foi processado com sucesso. Em anexo, o arquivo final."
                         send_email(email_subject, email_body, EMAIL_RECIPIENT, attachment_path=final_data_path)
         
-        else:  # Usar Último Upload com opção de substituição individual
+        else:  # Usar Último Upload (com opção de substituir arquivos individualmente)
             upload_dir = "uploaded_files"
             if not os.path.exists(upload_dir):
                 st.error("Nenhum upload encontrado. Por favor, faça um novo upload.")
@@ -422,7 +465,6 @@ if st.session_state.get('logged_in'):
                             
                             df_final = process_data(team_path, train_path, control_path, training_type_path, unisea_path, fuzzy_threshold)
                             
-                            # Salva o DataFrame final
                             final_data_path = os.path.join(last_session, "final.xlsx")
                             if df_final is not None:
                                 df_final.to_excel(final_data_path, index=False)
@@ -444,7 +486,7 @@ if st.session_state.get('logged_in'):
                             email_body = "O relatório foi processado com sucesso. Em anexo, o arquivo final."
                             send_email(email_subject, email_body, EMAIL_RECIPIENT, attachment_path=final_data_path)
     
-    # ----- Página Filtros (Filtros avançados com exportação personalizada) -----
+    # ----- Página Filtros (exportação personalizada) -----
     elif page == "Filtros":
         st.header("Filtros Avançados")
         if st.session_state.df_final is None:
@@ -477,14 +519,14 @@ if st.session_state.get('logged_in'):
                                    file_name=f"Status_Treinamento_Filtrado_{datetime.now().strftime('%Y-%m-%d')}.xlsx",
                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     
-    # ----- Página Visualização (Dashboard com gráficos) -----
+    # ----- Página Visualização (Dashboard com Gráficos) -----
     elif page == "Visualização":
         st.header("Dashboard de Visualização")
         if st.session_state.df_final is None:
             st.error("Nenhum dado processado para visualizar. Vá na página 'Relatório'.")
         else:
             df_final = st.session_state.df_final
-            # Gráfico de Pizza para Status Geral
+            # Gráfico de Pizza – Status Geral
             status_counts = df_final['status_final'].value_counts()
             labels = ['OK', 'Retreinamento', 'Not started']
             data = [status_counts.get(l, 0) for l in labels]
@@ -493,7 +535,7 @@ if st.session_state.get('logged_in'):
             ax1.axis('equal')
             st.pyplot(fig1)
             
-            # Gráfico de Barras para Status por Cargo
+            # Gráfico de Barras – Status por Cargo
             if 'cargo_pt_team' in df_final.columns and 'status_final' in df_final.columns:
                 group = df_final.groupby(['cargo_pt_team', 'status_final']).size().unstack(fill_value=0)
                 fig2, ax2 = plt.subplots(figsize=(8, 4))
@@ -501,7 +543,7 @@ if st.session_state.get('logged_in'):
                 ax2.set_title("Status por Cargo")
                 st.pyplot(fig2)
     
-    # ----- Página Tabela Completa (Simulação do Excel com filtro global e exportação personalizada) -----
+    # ----- Página Tabela Completa (Simulação do Excel) -----
     elif page == "Tabela Completa":
         st.header("Tabela Completa")
         if st.session_state.df_final is None:
@@ -520,20 +562,19 @@ if st.session_state.get('logged_in'):
                                file_name=f"Status_Treinamento_Personalizado_{datetime.now().strftime('%Y-%m-%d')}.xlsx",
                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     
-    # ----- Página Uploads Salvos (Visualização dos dados salvos sem reprocessar) -----
+    # ----- Página Uploads Salvos (Visualização de uploads anteriores) -----
     elif page == "Uploads Salvos":
         st.header("Uploads Salvos")
         upload_dir = "uploaded_files"
         if not os.path.exists(upload_dir):
             st.error("Nenhum upload salvo encontrado.")
         else:
-            # Lista as sessões que contenham o arquivo final.xlsx
+            # Lista as sessões contendo o arquivo final.xlsx
             session_folders = [os.path.join(upload_dir, d) for d in os.listdir(upload_dir)
                                if os.path.isdir(os.path.join(upload_dir, d)) and os.path.exists(os.path.join(upload_dir, d, "final.xlsx"))]
             if not session_folders:
                 st.info("Nenhum upload com relatório processado encontrado.")
             else:
-                # Cria um dicionário para mapear o nome da sessão à data formatada
                 sessions_dict = {}
                 for folder in session_folders:
                     session_name = os.path.basename(folder)
@@ -558,10 +599,10 @@ if st.session_state.get('logged_in'):
                     else:
                         st.error("Arquivo final.xlsx não encontrado no upload selecionado.")
     
-    # ----- Página Admin (Cadastro de novos usuários, acesso restrito ao admin) -----
+    # ----- Página Admin (Gerenciamento de Usuários) -----
     elif page == "Admin":
         st.header("Administração de Usuários")
-        if st.session_state.username != "admin":
+        if st.session_state.username.lower() != "admin":
             st.error("Acesso restrito a administradores.")
         else:
             st.subheader("Cadastrar Novo Usuário")
@@ -569,17 +610,27 @@ if st.session_state.get('logged_in'):
             new_password = st.text_input("Nova Senha", key="new_pass", type="password")
             if st.button("Cadastrar Usuário"):
                 if new_username and new_password:
-                    try:
-                        conn = sqlite3.connect(DB_PATH)
-                        cursor = conn.cursor()
-                        cursor.execute("INSERT INTO users (username, password) VALUES (?, ?)", (new_username, new_password))
-                        conn.commit()
-                        conn.close()
-                        st.success("Usuário cadastrado com sucesso!")
-                    except Exception as e:
-                        st.error(f"Erro ao cadastrar usuário: {e}")
+                    add_user(new_username, new_password)
+                    st.success("Usuário cadastrado com sucesso!")
                 else:
                     st.error("Informe um nome de usuário e senha.")
+            
+            st.subheader("Lista de Usuários")
+            df_users = get_all_users()
+            st.dataframe(df_users)
+            
+            st.subheader("Excluir Usuário")
+            # Lista os usuários (opcionalmente não permitir a exclusão do próprio admin)
+            users_list = df_users['username'].tolist()
+            user_to_delete = st.selectbox("Selecione um usuário para excluir", users_list)
+            if st.button("Excluir Usuário"):
+                # Opcional: impedir a deleção do usuário admin
+                if user_to_delete.lower() == "admin":
+                    st.error("Não é permitido excluir o usuário admin.")
+                else:
+                    delete_user(user_to_delete)
+                    st.success(f"Usuário '{user_to_delete}' excluído com sucesso!")
+                    st.experimental_rerun()
 
     # ----- Página Histórico (Logs dos relatórios) -----
     elif page == "Histórico":
