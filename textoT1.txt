@@ -1,0 +1,58 @@
+App de Relatório de Treinamento FPSO com Streamlit
+====================================================
+
+Descrição:
+----------
+Este projeto contém uma aplicação de relatório de treinamento para FPSO desenvolvida em Streamlit, derivada de uma aplicação original em Tkinter/CustomTkinter.
+A aplicação inclui as seguintes funcionalidades:
+  • Sistema de login com autenticação simples.
+  • Upload de arquivos (Team.xlsx, Treinamentos.xlsx, Controle.xlsx e arquivos opcionais).
+  • Processamento dos dados com integração de informações, normalização e aplicação de fuzzy matching.
+  • Visualização dos resultados por meio de gráficos (utilizando matplotlib).
+  • Exportação de dados para Excel e histórico de relatórios utilizando um banco de dados SQLite.
+
+Tecnologias Utilizadas:
+-------------------------
+  – Python 3.x
+  – Streamlit
+  – Pandas
+  – Matplotlib
+  – SQLite
+  – RapidFuzz
+
+Estrutura do Projeto:
+-------------------------
+  • app.py              -> Código principal da aplicação.
+  • report_history.db   -> Banco de dados SQLite (gerado automaticamente ao rodar a aplicação).
+  • README.txt          -> Este arquivo com as instruções e informações do projeto.
+
+Como Executar a Aplicação:
+-------------------------
+1. Instale as dependências necessárias:
+   
+   pip install streamlit pandas matplotlib rapidfuzz
+
+2. Execute a aplicação:
+   
+   streamlit run app.py
+
+3. Acesse o aplicativo através do navegador utilizando o endereço padrão (geralmente, http://localhost:8501).
+
+Customização:
+-------------
+• Usuários padrão:
+    - admin / 1234
+    - thiago / fpsonery
+• Para adicionar, remover ou alterar usuários, utilize o próprio sistema de login ou edite o banco de dados SQLite (report_history.db).
+
+Observações:
+------------
+• A lógica do processamento dos dados foi adaptada da versão Tkinter para o fluxo reativo do Streamlit.
+• Para exportar os resultados, o aplicativo oferece botões de download que geram arquivos Excel.
+• Este é um ponto de partida e você pode expandir o projeto adicionando recursos como exportação em CSV ou PDF, gráficos adicionais, entre outros.
+
+Licença:
+--------
+Este projeto é fornecido "como está", sem garantias ou responsabilidades. Sinta-se à vontade para modificá-lo ou distribuí-lo conforme necessário.
+
+Por: Thiago
