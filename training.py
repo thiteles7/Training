@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import io
 import re
 import unicodedata
+import os
 from rapidfuzz import fuzz
 
 # ========================
@@ -225,7 +226,6 @@ if not st.session_state.logged_in:
             st.session_state.logged_in = True
             st.session_state.username = username
             st.success("Login realizado com sucesso!")
-#            st.experimental_rerun()#
         else:
             st.error("Credenciais inválidas!")
 
@@ -246,30 +246,115 @@ if st.session_state.get('logged_in'):
     # ----- Página Relatório -----
     if page == "Relatório":
         st.header("Upload dos Arquivos")
-        team_file = st.file_uploader("Team.xlsx", type=["xlsx"])
-        train_file = st.file_uploader("Treinamentos.xlsx", type=["xlsx"])
-        control_file = st.file_uploader("Controle.xlsx", type=["xlsx"])
-        training_type_file = st.file_uploader("Listagem Tipo Treinamento (opcional)", type=["xlsx"])
-        unisea_file = st.file_uploader("Planilha Unisea (opcional)", type=["xlsx"])
-        fuzzy_threshold = st.number_input("Threshold Fuzzy:", min_value=0, max_value=100, value=80)
+        # Escolha entre novo upload ou usar o último upload
+        upload_option = st.radio("Selecione a opção", ["Novo Upload", "Usar Último Upload"])
         
-        if st.button("Processar Dados"):
-            if not (team_file and train_file and control_file):
-                st.error("É necessário enviar os arquivos Team, Treinamentos e Controle.")
+        if upload_option == "Novo Upload":
+            team_file = st.file_uploader("Team.xlsx", type=["xlsx"], key="team")
+            train_file = st.file_uploader("Treinamentos.xlsx", type=["xlsx"], key="train")
+            control_file = st.file_uploader("Controle.xlsx", type=["xlsx"], key="control")
+            training_type_file = st.file_uploader("Listagem Tipo Treinamento (opcional)", type=["xlsx"], key="training_type")
+            unisea_file = st.file_uploader("Planilha Unisea (opcional)", type=["xlsx"], key="unisea")
+            fuzzy_threshold = st.number_input("Threshold Fuzzy:", min_value=0, max_value=100, value=80)
+            
+            if st.button("Processar Dados"):
+                if not (team_file and train_file and control_file):
+                    st.error("É necessário enviar os arquivos Team, Treinamentos e Controle.")
+                else:
+                    # Cria diretório para armazenar uploads, se não existir
+                    upload_dir = "uploaded_files"
+                    if not os.path.exists(upload_dir):
+                        os.makedirs(upload_dir)
+                    # Cria uma subpasta com o timestamp atual (formato YYYYMMDDHHMMSS)
+                    timestamp_folder = datetime.now().strftime("%Y%m%d%H%M%S")
+                    session_folder = os.path.join(upload_dir, timestamp_folder)
+                    os.makedirs(session_folder)
+                    
+                    # Salva os arquivos enviados
+                    team_path = os.path.join(session_folder, "Team.xlsx")
+                    with open(team_path, "wb") as f:
+                        f.write(team_file.getbuffer())
+                    
+                    train_path = os.path.join(session_folder, "Treinamentos.xlsx")
+                    with open(train_path, "wb") as f:
+                        f.write(train_file.getbuffer())
+                    
+                    control_path = os.path.join(session_folder, "Controle.xlsx")
+                    with open(control_path, "wb") as f:
+                        f.write(control_file.getbuffer())
+                    
+                    # Arquivos opcionais
+                    training_type_path = None
+                    if training_type_file:
+                        training_type_path = os.path.join(session_folder, "Listagem_Tipo_Treinamento.xlsx")
+                        with open(training_type_path, "wb") as f:
+                            f.write(training_type_file.getbuffer())
+                    
+                    unisea_path = None
+                    if unisea_file:
+                        unisea_path = os.path.join(session_folder, "Planilha_Unisea.xlsx")
+                        with open(unisea_path, "wb") as f:
+                            f.write(unisea_file.getbuffer())
+                    
+                    # Processa os dados usando os caminhos dos arquivos salvos
+                    df_final = process_data(team_path, train_path, control_path, training_type_path, unisea_path, fuzzy_threshold)
+                    if df_final is not None:
+                        st.session_state.df_final = df_final
+                        st.success("Relatório processado com sucesso!")
+                        st.write("Exibindo os 5 primeiros registros:")
+                        st.dataframe(df_final.head())
+                        # Exportação para Excel
+                        buffer = io.BytesIO()
+                        df_final.to_excel(buffer, index=False)
+                        st.download_button(label="Baixar Excel",
+                                           data=buffer,
+                                           file_name=f"Status_Treinamento_{datetime.now().strftime('%Y-%m-%d')}.xlsx",
+                                           mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        
+        else:  # Opção "Usar Último Upload"
+            upload_dir = "uploaded_files"
+            if not os.path.exists(upload_dir):
+                st.error("Nenhum upload encontrado. Por favor, faça um novo upload.")
             else:
-                df_final = process_data(team_file, train_file, control_file, training_type_file, unisea_file, fuzzy_threshold)
-                if df_final is not None:
-                    st.session_state.df_final = df_final
-                    st.success("Relatório processado com sucesso!")
-                    st.write("Exibindo os 5 primeiros registros:")
-                    st.dataframe(df_final.head())
-                    # Exportação para Excel
-                    buffer = io.BytesIO()
-                    df_final.to_excel(buffer, index=False)
-                    st.download_button(label="Baixar Excel",
-                                       data=buffer,
-                                       file_name=f"Status_Treinamento_{datetime.now().strftime('%Y-%m-%d')}.xlsx",
-                                       mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                # Procura as subpastas de upload
+                sessions = [os.path.join(upload_dir, d) for d in os.listdir(upload_dir) if os.path.isdir(os.path.join(upload_dir, d))]
+                if not sessions:
+                    st.error("Nenhum upload encontrado. Por favor, faça um novo upload.")
+                else:
+                    # Ordena as sessões com base no nome (assumindo que o nome é o timestamp)
+                    last_session = sorted(sessions)[-1]
+                    last_session_name = os.path.basename(last_session)
+                    # Tenta converter o nome da sessão em data legível
+                    try:
+                        last_upload_date = datetime.strptime(last_session_name, "%Y%m%d%H%M%S")
+                        last_upload_date_str = last_upload_date.strftime("%Y-%m-%d %H:%M:%S")
+                    except Exception:
+                        last_upload_date_str = "Data desconhecida"
+                    
+                    st.info(f"Último upload realizado em: {last_upload_date_str}")
+                    st.write("Arquivos disponíveis no último upload:")
+                    files_available = os.listdir(last_session)
+                    st.write(files_available)
+                    
+                    fuzzy_threshold = st.number_input("Threshold Fuzzy:", min_value=0, max_value=100, value=80)
+                    if st.button("Processar Dados do Último Upload"):
+                        team_path = os.path.join(last_session, "Team.xlsx")
+                        train_path = os.path.join(last_session, "Treinamentos.xlsx")
+                        control_path = os.path.join(last_session, "Controle.xlsx")
+                        training_type_path = os.path.join(last_session, "Listagem_Tipo_Treinamento.xlsx")
+                        unisea_path = os.path.join(last_session, "Planilha_Unisea.xlsx")
+                        # Se os arquivos opcionais não existirem, define como None
+                        if not os.path.exists(training_type_path):
+                            training_type_path = None
+                        if not os.path.exists(unisea_path):
+                            unisea_path = None
+                        # Processa os dados a partir dos arquivos salvos
+                        df_final = process_data(team_path, train_path, control_path, training_type_path, unisea_path, fuzzy_threshold)
+                        if df_final is not None:
+                            st.session_state.df_final = df_final
+                            st.success("Relatório processado com sucesso!")
+                            st.write("Exibindo os 5 primeiros registros:")
+                            st.dataframe(df_final.head())
     
     # ----- Página Filtros -----
     elif page == "Filtros":
