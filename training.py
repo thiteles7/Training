@@ -61,7 +61,7 @@ DB_PATH = "report_history.db"
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    # Cria a tabela de histórico (se não existir)
+    # Cria a tabela de histórico, se não existir
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS report_history (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -72,21 +72,20 @@ def init_db():
         user TEXT
     )
     """)
-    # Cria a tabela de usuários, se não existir
+    # Cria a tabela de usuários, se não existir (sem a coluna last_access por padrão)
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS users (
         username TEXT PRIMARY KEY,
         password TEXT
     )
     """)
-    # Tenta adicionar a coluna last_access se ela ainda não existir
-    try:
+    # Verifica se a coluna last_access já existe na tabela users
+    cursor.execute("PRAGMA table_info(users)")
+    columns = [row[1] for row in cursor.fetchall()]  # row[1] contém o nome da coluna
+    if "last_access" not in columns:
         cursor.execute("ALTER TABLE users ADD COLUMN last_access TEXT")
-    except Exception as e:
-        # Se ocorrer erro (por exemplo, coluna já existe), ignora
-        pass
-
-    # Insere usuários padrão (INSERT OR IGNORE para evitar duplicatas)
+    
+    # Insere usuários padrão (usando INSERT OR IGNORE para evitar duplicatas)
     cursor.execute("INSERT OR IGNORE INTO users (username, password, last_access) VALUES (?, ?, ?)", ("admin", "1234", None))
     cursor.execute("INSERT OR IGNORE INTO users (username, password, last_access) VALUES (?, ?, ?)", ("thiago", "fpsonery", None))
     conn.commit()
@@ -334,7 +333,7 @@ if st.session_state.get('logged_in'):
     if 'df_final' not in st.session_state:
         st.session_state.df_final = None
 
-    # ----- Página Relatório (Upload + exportação + e-mail) -----
+    # ----- Página Relatório (Upload + exportação + envio de e-mail) -----
     if page == "Relatório":
         st.header("Upload dos Arquivos")
         upload_option = st.radio("Selecione a opção", ["Novo Upload", "Usar Último Upload"])
@@ -572,7 +571,6 @@ if st.session_state.get('logged_in'):
         if not os.path.exists(upload_dir):
             st.error("Nenhum upload salvo encontrado.")
         else:
-            # Lista as sessões contendo o arquivo final.xlsx
             session_folders = [os.path.join(upload_dir, d) for d in os.listdir(upload_dir)
                                if os.path.isdir(os.path.join(upload_dir, d)) and os.path.exists(os.path.join(upload_dir, d, "final.xlsx"))]
             if not session_folders:
