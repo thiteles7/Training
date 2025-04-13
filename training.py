@@ -8,15 +8,54 @@ import re
 import unicodedata
 import os
 from rapidfuzz import fuzz
-# Exibe a logo da empresa no topo
-st.image("logoYP.png", width=200, caption="Yinson Production")
-st.sidebar.image("logoYP.png", width=150, caption="Yinson Production")
 
+# Módulos para envio de e-mail
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from email.mime.application import MIMEApplication
+
+# ========================
+# Configurações de e-mail (ajuste conforme necessário)
+# ========================
+SMTP_SERVER = "smtp.gmail.com"
+SMTP_PORT = 587
+SMTP_USERNAME = "seuemail@gmail.com"      # Altere para seu e-mail
+SMTP_PASSWORD = "suasenha"                  # Altere para sua senha ou app password
+EMAIL_RECIPIENT = "destinatario@exemplo.com"  # E-mail que receberá a notificação
+
+def send_email(subject, body, to_email, attachment_path=None):
+    msg = MIMEMultipart()
+    msg['From'] = SMTP_USERNAME
+    msg['To'] = to_email
+    msg['Subject'] = subject
+    msg.attach(MIMEText(body, 'plain'))
+    
+    # Se houver arquivo para anexar, anexa-o
+    if attachment_path and os.path.exists(attachment_path):
+        with open(attachment_path, "rb") as f:
+            part = MIMEApplication(f.read(), Name=os.path.basename(attachment_path))
+        part['Content-Disposition'] = f'attachment; filename="{os.path.basename(attachment_path)}"'
+        msg.attach(part)
+    
+    try:
+        server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
+        server.starttls()
+        server.login(SMTP_USERNAME, SMTP_PASSWORD)
+        server.send_message(msg)
+        server.quit()
+        st.success("E-mail enviado com sucesso!")
+    except Exception as e:
+        st.error(f"Erro ao enviar e-mail: {e}")
+
+# ========================
+# Exibe a logo da empresa (opcional: ajuste o caminho, se necessário)
+# ========================
+st.image("logoYP.png", width=200, caption="Yinson Production")
 
 # ========================
 # Configuração do Banco de Dados
 # ========================
-
 DB_PATH = "report_history.db"
 
 def init_db():
@@ -66,7 +105,6 @@ def log_report(report_type, file_name, filter_options="", user="Desconhecido"):
 # ========================
 # Funções Utilitárias
 # ========================
-
 def safe_float(value):
     try:
         return float(str(value).strip())
@@ -93,7 +131,6 @@ def normalize_text(text):
 # ========================
 # Processamento dos Dados
 # ========================
-
 def process_data(team_file, train_file, control_file, training_type_file=None, unisea_file=None, fuzzy_threshold=80):
     try:
         # Lê o arquivo Team e separa as colunas de cargo
@@ -215,7 +252,6 @@ def process_data(team_file, train_file, control_file, training_type_file=None, u
 # ========================
 # Inicializa o Banco e Sistema de Login
 # ========================
-
 init_db()
 
 if 'logged_in' not in st.session_state:
@@ -223,6 +259,7 @@ if 'logged_in' not in st.session_state:
 
 if not st.session_state.logged_in:
     st.title("Login")
+    st.image("logoYP.png", width=200, caption="Yinson Production")
     username = st.text_input("Usuário")
     password = st.text_input("Senha", type="password")
     if st.button("Entrar"):
@@ -236,18 +273,21 @@ if not st.session_state.logged_in:
 # ========================
 # Aplicação Principal
 # ========================
-
 if st.session_state.get('logged_in'):
     st.title(f"Relatório de Treinamento - FPSO | Logado como: {st.session_state.username}")
     
-    # Cria navegação via Sidebar (nova aba "Tabela Completa" incluída)
-    page = st.sidebar.radio("Selecione a página", ["Relatório", "Filtros", "Visualização", "Tabela Completa", "Histórico"])
+    # Menu de navegação - adicionamos novas páginas: "Uploads Salvos" e "Admin"
+    pages = ["Relatório", "Filtros", "Visualização", "Tabela Completa", "Uploads Salvos", "Histórico"]
+    # Se o usuário for admin, adicionamos a página de administração
+    if st.session_state.username == "admin":
+        pages.append("Admin")
+    page = st.sidebar.radio("Selecione a página", pages)
     
-    # Guarda o dataframe processado em session_state para uso em outras páginas
+    # Variável para guardar o dataframe processado
     if 'df_final' not in st.session_state:
         st.session_state.df_final = None
 
-    # ----- Página Relatório (Upload e exportação da tabela completa) -----
+    # ----- Página Relatório (Upload + Exportação completa + envio de e-mail) -----
     if page == "Relatório":
         st.header("Upload dos Arquivos")
         upload_option = st.radio("Selecione a opção", ["Novo Upload", "Usar Último Upload"])
@@ -297,6 +337,11 @@ if st.session_state.get('logged_in'):
                                 f.write(unisea_file.getbuffer())
                         
                         df_final = process_data(team_path, train_path, control_path, training_type_path, unisea_path, fuzzy_threshold)
+                        
+                        # Salva o DataFrame final para uso futuro
+                        final_data_path = os.path.join(session_folder, "final.xlsx")
+                        if df_final is not None:
+                            df_final.to_excel(final_data_path, index=False)
                     
                     if df_final is not None:
                         st.session_state.df_final = df_final
@@ -304,15 +349,19 @@ if st.session_state.get('logged_in'):
                         st.write("Exibindo os 5 primeiros registros:")
                         st.dataframe(df_final.head())
                         
-                        # Botão para exportar a tabela completa para Excel
                         buffer = io.BytesIO()
                         df_final.to_excel(buffer, index=False)
                         st.download_button(label="Baixar Tabela Completa",
                                            data=buffer,
                                            file_name=f"Status_Treinamento_Completo_{datetime.now().strftime('%Y-%m-%d')}.xlsx",
                                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                        
+                        # Envio automático de e-mail com o relatório anexado
+                        email_subject = "Relatório de Treinamento Finalizado"
+                        email_body = "O relatório foi processado com sucesso. Em anexo, o arquivo final."
+                        send_email(email_subject, email_body, EMAIL_RECIPIENT, attachment_path=final_data_path)
         
-        else:  # Opção "Usar Último Upload" com substituição individual
+        else:  # Usar Último Upload com opção de substituição individual
             upload_dir = "uploaded_files"
             if not os.path.exists(upload_dir):
                 st.error("Nenhum upload encontrado. Por favor, faça um novo upload.")
@@ -372,6 +421,11 @@ if st.session_state.get('logged_in'):
                                     unisea_path = None
                             
                             df_final = process_data(team_path, train_path, control_path, training_type_path, unisea_path, fuzzy_threshold)
+                            
+                            # Salva o DataFrame final
+                            final_data_path = os.path.join(last_session, "final.xlsx")
+                            if df_final is not None:
+                                df_final.to_excel(final_data_path, index=False)
                         
                         if df_final is not None:
                             st.session_state.df_final = df_final
@@ -385,8 +439,12 @@ if st.session_state.get('logged_in'):
                                                data=buffer,
                                                file_name=f"Status_Treinamento_Completo_{datetime.now().strftime('%Y-%m-%d')}.xlsx",
                                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                            
+                            email_subject = "Relatório de Treinamento Finalizado"
+                            email_body = "O relatório foi processado com sucesso. Em anexo, o arquivo final."
+                            send_email(email_subject, email_body, EMAIL_RECIPIENT, attachment_path=final_data_path)
     
-    # ----- Página Filtros (filtros avançados com exportação personalizada) -----
+    # ----- Página Filtros (Filtros avançados com exportação personalizada) -----
     elif page == "Filtros":
         st.header("Filtros Avançados")
         if st.session_state.df_final is None:
@@ -412,7 +470,6 @@ if st.session_state.get('logged_in'):
                 st.info("Nenhum registro encontrado com os filtros aplicados.")
             else:
                 st.dataframe(df_final)
-                # Exportação personalizada dos dados filtrados
                 buffer = io.BytesIO()
                 df_final.to_excel(buffer, index=False)
                 st.download_button(label="Exportar Dados Filtrados",
@@ -420,7 +477,7 @@ if st.session_state.get('logged_in'):
                                    file_name=f"Status_Treinamento_Filtrado_{datetime.now().strftime('%Y-%m-%d')}.xlsx",
                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     
-    # ----- Página Visualização (dashboard com gráficos) -----
+    # ----- Página Visualização (Dashboard com gráficos) -----
     elif page == "Visualização":
         st.header("Dashboard de Visualização")
         if st.session_state.df_final is None:
@@ -456,7 +513,6 @@ if st.session_state.get('logged_in'):
             if search_term:
                 df_table = df_table[df_table.apply(lambda row: row.astype(str).str.contains(search_term, case=False).any(), axis=1)]
             st.dataframe(df_table)
-            
             buffer = io.BytesIO()
             df_table.to_excel(buffer, index=False)
             st.download_button(label="Exportar Dados (Personalizado)",
@@ -464,7 +520,68 @@ if st.session_state.get('logged_in'):
                                file_name=f"Status_Treinamento_Personalizado_{datetime.now().strftime('%Y-%m-%d')}.xlsx",
                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     
-    # ----- Página Histórico (logs de relatórios) -----
+    # ----- Página Uploads Salvos (Visualização dos dados salvos sem reprocessar) -----
+    elif page == "Uploads Salvos":
+        st.header("Uploads Salvos")
+        upload_dir = "uploaded_files"
+        if not os.path.exists(upload_dir):
+            st.error("Nenhum upload salvo encontrado.")
+        else:
+            # Lista as sessões que contenham o arquivo final.xlsx
+            session_folders = [os.path.join(upload_dir, d) for d in os.listdir(upload_dir)
+                               if os.path.isdir(os.path.join(upload_dir, d)) and os.path.exists(os.path.join(upload_dir, d, "final.xlsx"))]
+            if not session_folders:
+                st.info("Nenhum upload com relatório processado encontrado.")
+            else:
+                # Cria um dicionário para mapear o nome da sessão à data formatada
+                sessions_dict = {}
+                for folder in session_folders:
+                    session_name = os.path.basename(folder)
+                    try:
+                        session_date = datetime.strptime(session_name, "%Y%m%d%H%M%S")
+                        sessions_dict[folder] = session_date.strftime("%Y-%m-%d %H:%M:%S")
+                    except Exception:
+                        sessions_dict[folder] = "Data desconhecida"
+                
+                selected_session = st.selectbox("Selecione o upload", list(sessions_dict.keys()), format_func=lambda x: sessions_dict[x])
+                if selected_session:
+                    final_file = os.path.join(selected_session, "final.xlsx")
+                    if os.path.exists(final_file):
+                        df_saved = pd.read_excel(final_file)
+                        st.dataframe(df_saved)
+                        buffer = io.BytesIO()
+                        df_saved.to_excel(buffer, index=False)
+                        st.download_button(label="Exportar Dados do Upload Selecionado",
+                                           data=buffer,
+                                           file_name=f"Relatorio_{os.path.basename(selected_session)}.xlsx",
+                                           mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                    else:
+                        st.error("Arquivo final.xlsx não encontrado no upload selecionado.")
+    
+    # ----- Página Admin (Cadastro de novos usuários, acesso restrito ao admin) -----
+    elif page == "Admin":
+        st.header("Administração de Usuários")
+        if st.session_state.username != "admin":
+            st.error("Acesso restrito a administradores.")
+        else:
+            st.subheader("Cadastrar Novo Usuário")
+            new_username = st.text_input("Novo Usuário", key="new_user")
+            new_password = st.text_input("Nova Senha", key="new_pass", type="password")
+            if st.button("Cadastrar Usuário"):
+                if new_username and new_password:
+                    try:
+                        conn = sqlite3.connect(DB_PATH)
+                        cursor = conn.cursor()
+                        cursor.execute("INSERT INTO users (username, password) VALUES (?, ?)", (new_username, new_password))
+                        conn.commit()
+                        conn.close()
+                        st.success("Usuário cadastrado com sucesso!")
+                    except Exception as e:
+                        st.error(f"Erro ao cadastrar usuário: {e}")
+                else:
+                    st.error("Informe um nome de usuário e senha.")
+
+    # ----- Página Histórico (Logs dos relatórios) -----
     elif page == "Histórico":
         st.header("Histórico de Relatórios")
         try:
