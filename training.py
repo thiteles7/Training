@@ -236,17 +236,16 @@ if not st.session_state.logged_in:
 if st.session_state.get('logged_in'):
     st.title(f"Relatório de Treinamento - FPSO | Logado como: {st.session_state.username}")
     
-    # Cria navegação via Sidebar
-    page = st.sidebar.radio("Selecione a página", ["Relatório", "Filtros", "Visualização", "Histórico"])
+    # Cria navegação via Sidebar (nova aba "Tabela Completa" incluída)
+    page = st.sidebar.radio("Selecione a página", ["Relatório", "Filtros", "Visualização", "Tabela Completa", "Histórico"])
     
     # Guarda o dataframe processado em session_state para uso em outras páginas
     if 'df_final' not in st.session_state:
         st.session_state.df_final = None
 
-    # ----- Página Relatório -----
+    # ----- Página Relatório (Upload e exportação da tabela completa) -----
     if page == "Relatório":
         st.header("Upload dos Arquivos")
-        # Escolha entre novo upload ou usar o último upload
         upload_option = st.radio("Selecione a opção", ["Novo Upload", "Usar Último Upload"])
         
         if upload_option == "Novo Upload":
@@ -261,67 +260,63 @@ if st.session_state.get('logged_in'):
                 if not (team_file and train_file and control_file):
                     st.error("É necessário enviar os arquivos Team, Treinamentos e Controle.")
                 else:
-                    # Cria diretório para armazenar uploads, se não existir
-                    upload_dir = "uploaded_files"
-                    if not os.path.exists(upload_dir):
-                        os.makedirs(upload_dir)
-                    # Cria uma subpasta com o timestamp atual (formato YYYYMMDDHHMMSS)
-                    timestamp_folder = datetime.now().strftime("%Y%m%d%H%M%S")
-                    session_folder = os.path.join(upload_dir, timestamp_folder)
-                    os.makedirs(session_folder)
+                    with st.spinner("Processando dados..."):
+                        upload_dir = "uploaded_files"
+                        if not os.path.exists(upload_dir):
+                            os.makedirs(upload_dir)
+                        timestamp_folder = datetime.now().strftime("%Y%m%d%H%M%S")
+                        session_folder = os.path.join(upload_dir, timestamp_folder)
+                        os.makedirs(session_folder)
+                        
+                        team_path = os.path.join(session_folder, "Team.xlsx")
+                        with open(team_path, "wb") as f:
+                            f.write(team_file.getbuffer())
+                        
+                        train_path = os.path.join(session_folder, "Treinamentos.xlsx")
+                        with open(train_path, "wb") as f:
+                            f.write(train_file.getbuffer())
+                        
+                        control_path = os.path.join(session_folder, "Controle.xlsx")
+                        with open(control_path, "wb") as f:
+                            f.write(control_file.getbuffer())
+                        
+                        training_type_path = None
+                        if training_type_file:
+                            training_type_path = os.path.join(session_folder, "Listagem_Tipo_Treinamento.xlsx")
+                            with open(training_type_path, "wb") as f:
+                                f.write(training_type_file.getbuffer())
+                        
+                        unisea_path = None
+                        if unisea_file:
+                            unisea_path = os.path.join(session_folder, "Planilha_Unisea.xlsx")
+                            with open(unisea_path, "wb") as f:
+                                f.write(unisea_file.getbuffer())
+                        
+                        df_final = process_data(team_path, train_path, control_path, training_type_path, unisea_path, fuzzy_threshold)
                     
-                    # Salva os arquivos enviados
-                    team_path = os.path.join(session_folder, "Team.xlsx")
-                    with open(team_path, "wb") as f:
-                        f.write(team_file.getbuffer())
-                    
-                    train_path = os.path.join(session_folder, "Treinamentos.xlsx")
-                    with open(train_path, "wb") as f:
-                        f.write(train_file.getbuffer())
-                    
-                    control_path = os.path.join(session_folder, "Controle.xlsx")
-                    with open(control_path, "wb") as f:
-                        f.write(control_file.getbuffer())
-                    
-                    # Arquivos opcionais
-                    training_type_path = None
-                    if training_type_file:
-                        training_type_path = os.path.join(session_folder, "Listagem_Tipo_Treinamento.xlsx")
-                        with open(training_type_path, "wb") as f:
-                            f.write(training_type_file.getbuffer())
-                    
-                    unisea_path = None
-                    if unisea_file:
-                        unisea_path = os.path.join(session_folder, "Planilha_Unisea.xlsx")
-                        with open(unisea_path, "wb") as f:
-                            f.write(unisea_file.getbuffer())
-                    
-                    # Processa os dados usando os caminhos dos arquivos salvos
-                    df_final = process_data(team_path, train_path, control_path, training_type_path, unisea_path, fuzzy_threshold)
                     if df_final is not None:
                         st.session_state.df_final = df_final
                         st.success("Relatório processado com sucesso!")
                         st.write("Exibindo os 5 primeiros registros:")
                         st.dataframe(df_final.head())
-                        # Exportação para Excel
+                        
+                        # Botão para exportar a tabela completa para Excel
                         buffer = io.BytesIO()
                         df_final.to_excel(buffer, index=False)
-                        st.download_button(label="Baixar Excel",
+                        st.download_button(label="Baixar Tabela Completa",
                                            data=buffer,
-                                           file_name=f"Status_Treinamento_{datetime.now().strftime('%Y-%m-%d')}.xlsx",
+                                           file_name=f"Status_Treinamento_Completo_{datetime.now().strftime('%Y-%m-%d')}.xlsx",
                                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         
-        else:  # Opção "Usar Último Upload" com opção de substituir arquivos individualmente
+        else:  # Opção "Usar Último Upload" com substituição individual
             upload_dir = "uploaded_files"
             if not os.path.exists(upload_dir):
                 st.error("Nenhum upload encontrado. Por favor, faça um novo upload.")
             else:
-                # Procura as subpastas de upload
                 sessions = [os.path.join(upload_dir, d) for d in os.listdir(upload_dir) if os.path.isdir(os.path.join(upload_dir, d))]
                 if not sessions:
                     st.error("Nenhum upload encontrado. Por favor, faça um novo upload.")
                 else:
-                    # Ordena as sessões com base no nome (assumindo que o nome é o timestamp)
                     last_session = sorted(sessions)[-1]
                     last_session_name = os.path.basename(last_session)
                     try:
@@ -344,71 +339,84 @@ if st.session_state.get('logged_in'):
                     
                     fuzzy_threshold = st.number_input("Threshold Fuzzy:", min_value=0, max_value=100, value=80)
                     if st.button("Processar Dados do Último Upload"):
-                        # Para cada arquivo, se um novo arquivo for enviado, salva-o; caso contrário, usa o arquivo salvo anteriormente
-                        team_path = os.path.join(last_session, "Team.xlsx")
-                        if team_file_new is not None:
-                            with open(team_path, "wb") as f:
-                                f.write(team_file_new.getbuffer())
-                        train_path = os.path.join(last_session, "Treinamentos.xlsx")
-                        if train_file_new is not None:
-                            with open(train_path, "wb") as f:
-                                f.write(train_file_new.getbuffer())
-                        control_path = os.path.join(last_session, "Controle.xlsx")
-                        if control_file_new is not None:
-                            with open(control_path, "wb") as f:
-                                f.write(control_file_new.getbuffer())
-                        training_type_path = os.path.join(last_session, "Listagem_Tipo_Treinamento.xlsx")
-                        if training_type_file_new is not None:
-                            with open(training_type_path, "wb") as f:
-                                f.write(training_type_file_new.getbuffer())
-                        else:
-                            if not os.path.exists(training_type_path):
-                                training_type_path = None
-                        unisea_path = os.path.join(last_session, "Planilha_Unisea.xlsx")
-                        if unisea_file_new is not None:
-                            with open(unisea_path, "wb") as f:
-                                f.write(unisea_file_new.getbuffer())
-                        else:
-                            if not os.path.exists(unisea_path):
-                                unisea_path = None
+                        with st.spinner("Processando dados..."):
+                            team_path = os.path.join(last_session, "Team.xlsx")
+                            if team_file_new is not None:
+                                with open(team_path, "wb") as f:
+                                    f.write(team_file_new.getbuffer())
+                            train_path = os.path.join(last_session, "Treinamentos.xlsx")
+                            if train_file_new is not None:
+                                with open(train_path, "wb") as f:
+                                    f.write(train_file_new.getbuffer())
+                            control_path = os.path.join(last_session, "Controle.xlsx")
+                            if control_file_new is not None:
+                                with open(control_path, "wb") as f:
+                                    f.write(control_file_new.getbuffer())
+                            training_type_path = os.path.join(last_session, "Listagem_Tipo_Treinamento.xlsx")
+                            if training_type_file_new is not None:
+                                with open(training_type_path, "wb") as f:
+                                    f.write(training_type_file_new.getbuffer())
+                            else:
+                                if not os.path.exists(training_type_path):
+                                    training_type_path = None
+                            unisea_path = os.path.join(last_session, "Planilha_Unisea.xlsx")
+                            if unisea_file_new is not None:
+                                with open(unisea_path, "wb") as f:
+                                    f.write(unisea_file_new.getbuffer())
+                            else:
+                                if not os.path.exists(unisea_path):
+                                    unisea_path = None
+                            
+                            df_final = process_data(team_path, train_path, control_path, training_type_path, unisea_path, fuzzy_threshold)
                         
-                        # Processa os dados usando os arquivos (antigos ou substituídos)
-                        df_final = process_data(team_path, train_path, control_path, training_type_path, unisea_path, fuzzy_threshold)
                         if df_final is not None:
                             st.session_state.df_final = df_final
                             st.success("Relatório processado com sucesso!")
                             st.write("Exibindo os 5 primeiros registros:")
                             st.dataframe(df_final.head())
+                            
+                            buffer = io.BytesIO()
+                            df_final.to_excel(buffer, index=False)
+                            st.download_button(label="Baixar Tabela Completa",
+                                               data=buffer,
+                                               file_name=f"Status_Treinamento_Completo_{datetime.now().strftime('%Y-%m-%d')}.xlsx",
+                                               mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     
-    # ----- Página Filtros -----
+    # ----- Página Filtros (filtros avançados com exportação personalizada) -----
     elif page == "Filtros":
         st.header("Filtros Avançados")
         if st.session_state.df_final is None:
             st.error("Nenhum dado processado para filtrar. Vá na página 'Relatório' e processe os dados.")
         else:
-            df_final = st.session_state.df_final
+            df_final = st.session_state.df_final.copy()
             cargos = sorted(df_final['cargo_pt_team'].dropna().unique())
             cargo_selected = st.selectbox("Cargo", options=["Todos"] + cargos)
             status_selected = st.selectbox("Status", options=["Todos", "OK", "Retreinamento", "Not started"])
             data_inicial = st.date_input("Data Inicial")
             data_final = st.date_input("Data Final")
             
-            filtered_df = df_final.copy()
             if cargo_selected != "Todos":
-                filtered_df = filtered_df[filtered_df['cargo_pt_team'] == cargo_selected]
+                df_final = df_final[df_final['cargo_pt_team'] == cargo_selected]
             if status_selected != "Todos":
-                filtered_df = filtered_df[filtered_df['status_final'] == status_selected]
-            if 'control_data_completo' in filtered_df.columns:
-                filtered_df['control_data_completo'] = pd.to_datetime(filtered_df['control_data_completo'], errors='coerce')
-                filtered_df = filtered_df[(filtered_df['control_data_completo'] >= pd.to_datetime(data_inicial)) & 
-                                          (filtered_df['control_data_completo'] <= pd.to_datetime(data_final))]
+                df_final = df_final[df_final['status_final'] == status_selected]
+            if 'control_data_completo' in df_final.columns:
+                df_final['control_data_completo'] = pd.to_datetime(df_final['control_data_completo'], errors='coerce')
+                df_final = df_final[(df_final['control_data_completo'] >= pd.to_datetime(data_inicial)) & 
+                                    (df_final['control_data_completo'] <= pd.to_datetime(data_final))]
             
-            if filtered_df.empty:
+            if df_final.empty:
                 st.info("Nenhum registro encontrado com os filtros aplicados.")
             else:
-                st.dataframe(filtered_df)
+                st.dataframe(df_final)
+                # Exportação personalizada dos dados filtrados
+                buffer = io.BytesIO()
+                df_final.to_excel(buffer, index=False)
+                st.download_button(label="Exportar Dados Filtrados",
+                                   data=buffer,
+                                   file_name=f"Status_Treinamento_Filtrado_{datetime.now().strftime('%Y-%m-%d')}.xlsx",
+                                   mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     
-    # ----- Página Visualização -----
+    # ----- Página Visualização (dashboard com gráficos) -----
     elif page == "Visualização":
         st.header("Dashboard de Visualização")
         if st.session_state.df_final is None:
@@ -432,7 +440,27 @@ if st.session_state.get('logged_in'):
                 ax2.set_title("Status por Cargo")
                 st.pyplot(fig2)
     
-    # ----- Página Histórico -----
+    # ----- Página Tabela Completa (Simulação do Excel com filtro global e exportação personalizada) -----
+    elif page == "Tabela Completa":
+        st.header("Tabela Completa")
+        if st.session_state.df_final is None:
+            st.error("Nenhum dado processado. Vá na página 'Relatório' e processe os dados.")
+        else:
+            df_table = st.session_state.df_final.copy()
+            st.markdown("### Filtro Global (pesquisa em todas as colunas)")
+            search_term = st.text_input("Digite o termo para filtrar:")
+            if search_term:
+                df_table = df_table[df_table.apply(lambda row: row.astype(str).str.contains(search_term, case=False).any(), axis=1)]
+            st.dataframe(df_table)
+            
+            buffer = io.BytesIO()
+            df_table.to_excel(buffer, index=False)
+            st.download_button(label="Exportar Dados (Personalizado)",
+                               data=buffer,
+                               file_name=f"Status_Treinamento_Personalizado_{datetime.now().strftime('%Y-%m-%d')}.xlsx",
+                               mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    
+    # ----- Página Histórico (logs de relatórios) -----
     elif page == "Histórico":
         st.header("Histórico de Relatórios")
         try:
