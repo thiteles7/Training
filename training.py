@@ -650,7 +650,7 @@ if st.session_state.get('logged_in'):
 
             # Filtra os dados processados para registros contendo "R & VCP" (case-insensitive)
             df_vcp = st.session_state.df_final.copy()
-            df_vcp = df_vcp[df_vcp['requisito'].str.contains(r"R\s*&\s*VCP", case=False, na=False)]
+            df_vcp = df_vcp[df_vcp['procedimento_nome'].str.contains(r"R\s*&\s*VCP", case=False, na=False)]
             if df_vcp.empty:
                 st.info("No employees found for R & VCP.")
             else:
