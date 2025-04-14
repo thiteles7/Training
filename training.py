@@ -76,22 +76,21 @@ def init_db():
         user TEXT
     )
     """)
-    # Cria tabela users, se não existir (sem a coluna last_access inicialmente)
+    # Cria tabela users, se não existir (com apenas o usuário admin)
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS users (
         username TEXT PRIMARY KEY,
         password TEXT
     )
     """)
-    # Verifica se a coluna last_access existe na tabela users
+    # Verifica se a coluna last_access existe na tabela users e adiciona se não existir
     cursor.execute("PRAGMA table_info(users)")
     columns = [row[1] for row in cursor.fetchall()]
     if "last_access" not in columns:
         cursor.execute("ALTER TABLE users ADD COLUMN last_access TEXT")
     
-    # Insere usuários padrões (usando INSERT OR IGNORE para evitar duplicatas)
+    # Insere somente o usuário admin (sem outros usuários)
     cursor.execute("INSERT OR IGNORE INTO users (username, password, last_access) VALUES (?, ?, ?)", ("admin", "1234", None))
-    cursor.execute("INSERT OR IGNORE INTO users (username, password, last_access) VALUES (?, ?, ?)", ("thiago", "fpsonery", None))
     conn.commit()
     conn.close()
 
@@ -122,7 +121,7 @@ def log_report(report_type, file_name, filter_options="", user="Unknown"):
     conn.commit()
     conn.close()
 
-# Funções para administração de usuários (admin)
+# Funções para administração de usuários (somente admin)
 def add_user(username, password):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -342,7 +341,7 @@ if not st.session_state.logged_in:
 if st.session_state.get('logged_in'):
     st.title(f"Training Report - FPSO | Logged in as: {st.session_state.username}")
     
-    # Define as abas de navegação; inclua "Admin" somente para o usuário admin
+    # Define as abas de navegação; inclui "Admin" somente para o usuário admin
     tabs_list = ["Report", "Filters", "Visualization", "Full Table", "Saved Uploads", "History", "VCP"]
     if st.session_state.username.lower() == "admin":
         tabs_list.append("Admin")
@@ -648,20 +647,20 @@ if st.session_state.get('logged_in'):
                     st.error(f"Erro ao processar o arquivo importado: {e}")
                     imported_df = None
 
-            # Filtra os dados processados para registros contendo "R & VCP" (case-insensitive)
+            # Filtra os dados processados para registros em que a coluna 'requisito' contenha "R & VCP" (case-insensitive)
             df_vcp = st.session_state.df_final.copy()
-            df_vcp = df_vcp[df_vcp['procedimento_nome'].str.contains(r"R\s*&\s*VCP", case=False, na=False)]
+            df_vcp = df_vcp[df_vcp['requisito'].str.contains(r"R\s*&\s*VCP", case=False, na=False)]
             if df_vcp.empty:
                 st.info("No employees found for R & VCP.")
             else:
-                # Cria DataFrame base a partir dos dados processados
+                # Cria DataFrame base a partir dos dados processados para a aba VCP
                 df_vcp_new = pd.DataFrame({
                     "Employee": df_vcp["Unisea E-learning User"],
                     "Position (English)": df_vcp.get("cargo_en_team", df_vcp["cargo_pt_team"]),
                     "Procedure Number": df_vcp["procedimento_num_assigned"],
                     "Date Completed": ""  # Campo para preenchimento manual ou importado
                 })
-                df_vcp_new["Due Date"] = ""  # Calculada com base na "Date Completed"
+                df_vcp_new["Due Date"] = ""  # Será calculada com base na "Date Completed"
                 df_vcp_new["Reading"] = df_vcp["status_final"].apply(lambda x: "Completed" if str(x).lower() == "ok" else "Pending")
                 df_vcp_new["Upload"] = ""  # Para informações de upload de arquivo
 
@@ -705,7 +704,7 @@ if st.session_state.get('logged_in'):
                         st.success(f"File '{uploaded_file.name}' uploaded for {selected_employee}.")
                         st.session_state.vcp_data = edited_df.copy()
 
-                # O recálculo dos campos "Due Date" e "Status VCP" será feito somente quando o botão for clicado
+                # Recalcula os campos "Due Date" e "Status VCP" somente quando o botão é clicado
                 if st.button("Save Table Changes"):
                     def calc_due_date(date_str):
                         try:
