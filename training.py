@@ -1,4 +1,4 @@
-import streamlit as st 
+import streamlit as st  
 import pandas as pd
 import sqlite3
 from datetime import datetime
@@ -343,39 +343,41 @@ if st.session_state.get('logged_in'):
     st.title(f"Training Report - FPSO | Logged in as: {st.session_state.username}")
     
     # Implementando Tabs
-    tabs = st.tabs(["Report", "Filters", "Visualization", "Full Table", "Saved Uploads", "History", "VCP", "Admin"] if st.session_state.username.lower() == "admin" else ["Report", "Filters", "Visualization", "Full Table", "Saved Uploads", "History", "VCP"])
+    tabs = st.tabs(["Report", "Filters", "Visualization", "Full Table", "Saved Uploads", "History", "VCP", "Admin"] 
+                   if st.session_state.username.lower() == "admin" 
+                   else ["Report", "Filters", "Visualization", "Full Table", "Saved Uploads", "History", "VCP"])
     
     with tabs[0]:  # Tab "Report"
         st.header("Upload Files")
         # Conteúdo atual da seção Report...
-
+    
     with tabs[1]:  # Tab "Filters"
         st.header("Advanced Filters")
         # Conteúdo atual da seção Filters...
-
+    
     with tabs[2]:  # Tab "Visualization"
         st.header("Visualization Dashboard")
         # Conteúdo atual da seção Visualization...
-
+    
     with tabs[3]:  # Tab "Full Table"
         st.header("Full Table")
         # Conteúdo atual da seção Full Table...
-
+    
     with tabs[4]:  # Tab "Saved Uploads"
         st.header("Saved Uploads")
         # Conteúdo atual da seção Saved Uploads...
-
+    
     with tabs[5]:  # Tab "History"
         st.header("Reports History")
         # Conteúdo atual da seção History...
-
+    
     if st.session_state.username.lower() == "admin":
         with tabs[6]:  # Tab "Admin"
             st.header("User Administration")
             # Conteúdo atual da seção Admin...
-
+    
     # ----- Página Report (Upload + Export + Email) -----
-    if page == "Report":
+    if st.session_state.get('page', 'Report') == "Report":
         st.header("Upload Files")
         upload_option = st.radio("Select an option", ["New Upload", "Use Last Upload"])
         
@@ -530,7 +532,7 @@ if st.session_state.get('logged_in'):
                             send_email(email_subject, email_body, EMAIL_RECIPIENT, attachment_path=final_data_path)
     
     # ----- Página Filters (export customizado) -----
-    elif page == "Filters":
+    elif st.session_state.get('page') == "Filters":
         st.header("Advanced Filters")
         if st.session_state.df_final is None:
             st.error("No processed data available for filtering. Go to the 'Report' page and process the data.")
@@ -563,7 +565,7 @@ if st.session_state.get('logged_in'):
                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     
     # ----- Página Visualization (Dashboard com Gráficos) -----
-    elif page == "Visualization":
+    elif st.session_state.get('page') == "Visualization":
         st.header("Visualization Dashboard")
         if st.session_state.df_final is None:
             st.error("No processed data available for visualization. Go to the 'Report' page.")
@@ -587,7 +589,7 @@ if st.session_state.get('logged_in'):
                 st.pyplot(fig2)
     
     # ----- Página Full Table (Exibição estilo Excel) -----
-    elif page == "Full Table":
+    elif st.session_state.get('page') == "Full Table":
         st.header("Full Table")
         if st.session_state.df_final is None:
             st.error("No processed data. Go to the 'Report' page and process the data.")
@@ -606,7 +608,7 @@ if st.session_state.get('logged_in'):
                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     
     # ----- Página Saved Uploads (Uploads anteriores) -----
-    elif page == "Saved Uploads":
+    elif st.session_state.get('page') == "Saved Uploads":
         st.header("Saved Uploads")
         upload_dir = "uploaded_files"
         if not os.path.exists(upload_dir):
@@ -642,7 +644,7 @@ if st.session_state.get('logged_in'):
                         st.error("final.xlsx file not found in the selected upload.")
     
     # ----- Página VCP (Persistent R & VCP Control) -----
-    elifpage == "VCP":
+    elif st.session_state.get('page') == "VCP":
         st.header("R & VCP Tracking")
         if st.session_state.df_final is None:
             st.error("No processed data available. Please process the report first in the 'Report' page.")
@@ -706,7 +708,7 @@ if st.session_state.get('logged_in'):
                         "Procedimento": "Procedure Number",
                         "Data Concluída": "Date Completed"
                     }, inplace=True)
-                    # Para simplificar o merge, definimos a combinação de Employee e Procedure Number como chave
+                    # Define a chave para merge: Employee e Procedure Number
                     df_vcp_new.set_index(["Employee", "Procedure Number"], inplace=True)
                     imported_df.set_index(["Employee", "Procedure Number"], inplace=True)
                     # Atualiza os valores existentes com os dados importados
@@ -766,7 +768,7 @@ if st.session_state.get('logged_in'):
                     st.success("Table changes saved!")
     
     # ----- Página Admin (Administração de Usuários) -----
-    elif page == "Admin":
+    elif st.session_state.get('page') == "Admin":
         st.header("User Administration")
         if st.session_state.username.lower() != "admin":
             st.error("Access restricted to administrators.")
@@ -797,7 +799,7 @@ if st.session_state.get('logged_in'):
                     st.experimental_rerun()
 
     # ----- Página History (Histórico de Relatórios) -----
-    elif page == "History":
+    elif st.session_state.get('page') == "History":
         st.header("Reports History")
         try:
             conn = sqlite3.connect(DB_PATH)
