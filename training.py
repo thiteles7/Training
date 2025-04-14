@@ -340,45 +340,39 @@ if not st.session_state.logged_in:
 # Aplicação Principal
 # ========================
 if st.session_state.get('logged_in'):
-    # --- Opção de Tema: Light ou Dark ---
-    theme = st.sidebar.radio("Choose Theme", ["Light", "Dark"], key="theme")
-    def set_bg_color(theme):
-        if theme == "Dark":
-            st.markdown(
-                """
-                <style>
-                body {
-                    background-color: #0e1117;
-                    color: white;
-                }
-                </style>
-                """, unsafe_allow_html=True
-            )
-        else:
-            st.markdown(
-                """
-                <style>
-                body {
-                    background-color: white;
-                    color: black;
-                }
-                </style>
-                """, unsafe_allow_html=True
-            )
-    set_bg_color(theme)
-    
     st.title(f"Training Report - FPSO | Logged in as: {st.session_state.username}")
     
-    # Menu de Navegação (páginas em inglês)
-    pages = ["Report", "Filters", "Visualization", "Full Table", "Saved Uploads", "History", "VCP"]
-    st.sidebar.write("Logged in user:", st.session_state.username)
+    # Implementando Tabs
+    tabs = st.tabs(["Report", "Filters", "Visualization", "Full Table", "Saved Uploads", "History", "VCP", "Admin"] if st.session_state.username.lower() == "admin" else ["Report", "Filters", "Visualization", "Full Table", "Saved Uploads", "History", "VCP"])
+    
+    with tabs[0]:  # Tab "Report"
+        st.header("Upload Files")
+        # Conteúdo atual da seção Report...
+
+    with tabs[1]:  # Tab "Filters"
+        st.header("Advanced Filters")
+        # Conteúdo atual da seção Filters...
+
+    with tabs[2]:  # Tab "Visualization"
+        st.header("Visualization Dashboard")
+        # Conteúdo atual da seção Visualization...
+
+    with tabs[3]:  # Tab "Full Table"
+        st.header("Full Table")
+        # Conteúdo atual da seção Full Table...
+
+    with tabs[4]:  # Tab "Saved Uploads"
+        st.header("Saved Uploads")
+        # Conteúdo atual da seção Saved Uploads...
+
+    with tabs[5]:  # Tab "History"
+        st.header("Reports History")
+        # Conteúdo atual da seção History...
+
     if st.session_state.username.lower() == "admin":
-        pages.append("Admin")
-    
-    page = st.sidebar.radio("Select a page", pages)
-    
-    if 'df_final' not in st.session_state:
-        st.session_state.df_final = None
+        with tabs[6]:  # Tab "Admin"
+            st.header("User Administration")
+            # Conteúdo atual da seção Admin...
 
     # ----- Página Report (Upload + Export + Email) -----
     if page == "Report":
