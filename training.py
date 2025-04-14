@@ -15,6 +15,9 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.application import MIMEApplication
 
+# --- Configurar o layout para "wide" ---
+st.set_page_config(page_title="Training Report - FPSO", layout="wide")
+
 # ========================
 # Email Settings (adjust as needed)
 # ========================
@@ -628,7 +631,7 @@ if st.session_state.get('logged_in'):
                     else:
                         st.error("final.xlsx file not found in the selected upload.")
     
-    # ----- VCP Page (Persistent R & VCP Control) -----
+    # ----- VCP Page (Persistent R & VCP Control with File Upload column) -----
     elif page == "VCP":
         st.header("R & VCP Tracking")
         if st.session_state.df_final is None:
@@ -640,25 +643,28 @@ if st.session_state.get('logged_in'):
             if df_vcp.empty:
                 st.info("No employees found for R & VCP.")
             else:
-                # Build a DataFrame with the required columns
+                # Create the initial VCP DataFrame with an extra column "Upload"
                 df_vcp_new = pd.DataFrame({
                     "Employee": df_vcp["Unisea E-learning User"],
                     "Position (English)": df_vcp.get("cargo_en_team", df_vcp["cargo_pt_team"]),
                     "Procedure Number": df_vcp["procedimento_num_assigned"],
-                    "Date Completed": ""  # initially empty; user fills in the date (YYYY-MM-DD)
+                    "Date Completed": ""  # User enters date (YYYY-MM-DD)
                 })
-                df_vcp_new["Due Date"] = ""  # to be calculated later
+                df_vcp_new["Due Date"] = ""  # Calculated later
                 df_vcp_new["Reading"] = df_vcp["status_final"].apply(lambda x: "Completed" if str(x).lower() == "ok" else "Pending")
+                # Add new column "Upload" if not already present
+                if "Upload" not in df_vcp_new.columns:
+                    df_vcp_new["Upload"] = ""
                 
-                # Persist the VCP data so that manual changes remain fixed during the session
+                # Persist the VCP data so manual changes remain fixed during the session.
                 if "vcp_data" not in st.session_state:
                     st.session_state.vcp_data = df_vcp_new.copy()
                 
-                st.markdown("### R & VCP Control Table (Edit the 'Date Completed' as needed in YYYY-MM-DD format)")
-                # Use st.data_editor instead of experimental_data_editor
+                st.markdown("### R & VCP Table (Edit 'Date Completed' as needed in YYYY-MM-DD format)")
+                # Show a single editable table
                 edited_df = st.data_editor(st.session_state.vcp_data, num_rows="dynamic", key="vcp_table")
                 
-                # Function to calculate Due Date (730 days after Date Completed)
+                # Calculate Due Date (730 days after Date Completed)
                 def calc_due_date(date_str):
                     try:
                         dt = datetime.strptime(date_str, "%Y-%m-%d")
@@ -670,12 +676,25 @@ if st.session_state.get('logged_in'):
                 edited_df["Due Date"] = edited_df["Date Completed"].apply(lambda x: calc_due_date(x) if x != "" else "")
                 
                 st.markdown("### Updated R & VCP Table")
-                st.dataframe(edited_df)
+                st.dataframe(edited_df, height=500)  # Ajusta a altura para mostrar todas as colunas se possível
                 
-                # Button to save manual changes permanently (within the session)
-                if st.button("Save Changes"):
+                # Section for file upload for a selected employee
+                st.markdown("#### Upload File for Employee")
+                selected_employee = st.selectbox("Select Employee", edited_df["Employee"].unique())
+                uploaded_file = st.file_uploader("Drag and drop file here", type=["pdf", "docx", "xlsx"], key="vcp_upload")
+                if uploaded_file is not None:
+                    # Salve o nome do arquivo (ou outras informações) na coluna "Upload" da linha selecionada
+                    idx = edited_df.index[edited_df["Employee"] == selected_employee].tolist()
+                    if idx:
+                        edited_df.at[idx[0], "Upload"] = uploaded_file.name
+                        st.success(f"File '{uploaded_file.name}' uploaded for {selected_employee}.")
+                        # Atualiza a variável persistida na session
+                        st.session_state.vcp_data = edited_df.copy()
+                
+                # Button to save changes manually
+                if st.button("Save Table Changes"):
                     st.session_state.vcp_data = edited_df.copy()
-                    st.success("Changes saved!")
+                    st.success("Table changes saved!")
     
     # ----- Admin Page (User Administration) -----
     elif page == "Admin":
