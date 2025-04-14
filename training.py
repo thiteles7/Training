@@ -343,39 +343,41 @@ if st.session_state.get('logged_in'):
     st.title(f"Training Report - FPSO | Logged in as: {st.session_state.username}")
     
     # Implementando Tabs
-    tabs = st.tabs(["Report", "Filters", "Visualization", "Full Table", "Saved Uploads", "History", "VCP", "Admin"] if st.session_state.username.lower() == "admin" else ["Report", "Filters", "Visualization", "Full Table", "Saved Uploads", "History", "VCP"])
+    tabs = st.tabs(["Report", "Filters", "Visualization", "Full Table", "Saved Uploads", "History", "VCP", "Admin"] 
+                   if st.session_state.username.lower() == "admin" 
+                   else ["Report", "Filters", "Visualization", "Full Table", "Saved Uploads", "History", "VCP"])
     
     with tabs[0]:  # Tab "Report"
         st.header("Upload Files")
         # Conteúdo atual da seção Report...
-
+    
     with tabs[1]:  # Tab "Filters"
         st.header("Advanced Filters")
         # Conteúdo atual da seção Filters...
-
+    
     with tabs[2]:  # Tab "Visualization"
         st.header("Visualization Dashboard")
         # Conteúdo atual da seção Visualization...
-
+    
     with tabs[3]:  # Tab "Full Table"
         st.header("Full Table")
         # Conteúdo atual da seção Full Table...
-
+    
     with tabs[4]:  # Tab "Saved Uploads"
         st.header("Saved Uploads")
         # Conteúdo atual da seção Saved Uploads...
-
+    
     with tabs[5]:  # Tab "History"
         st.header("Reports History")
         # Conteúdo atual da seção History...
-
+    
     if st.session_state.username.lower() == "admin":
         with tabs[6]:  # Tab "Admin"
             st.header("User Administration")
             # Conteúdo atual da seção Admin...
-
+    
     # ----- Página Report (Upload + Export + Email) -----
-    if page == "Report":
+    if st.session_state.get('page', 'Report') == "Report":
         st.header("Upload Files")
         upload_option = st.radio("Select an option", ["New Upload", "Use Last Upload"])
         
@@ -530,7 +532,7 @@ if st.session_state.get('logged_in'):
                             send_email(email_subject, email_body, EMAIL_RECIPIENT, attachment_path=final_data_path)
     
     # ----- Página Filters (export customizado) -----
-    elif page == "Filters":
+    elif st.session_state.get('page') == "Filters":
         st.header("Advanced Filters")
         if st.session_state.df_final is None:
             st.error("No processed data available for filtering. Go to the 'Report' page and process the data.")
@@ -563,7 +565,7 @@ if st.session_state.get('logged_in'):
                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     
     # ----- Página Visualization (Dashboard com Gráficos) -----
-    elif page == "Visualization":
+    elif st.session_state.get('page') == "Visualization":
         st.header("Visualization Dashboard")
         if st.session_state.df_final is None:
             st.error("No processed data available for visualization. Go to the 'Report' page.")
@@ -587,7 +589,7 @@ if st.session_state.get('logged_in'):
                 st.pyplot(fig2)
     
     # ----- Página Full Table (Exibição estilo Excel) -----
-    elif page == "Full Table":
+    elif st.session_state.get('page') == "Full Table":
         st.header("Full Table")
         if st.session_state.df_final is None:
             st.error("No processed data. Go to the 'Report' page and process the data.")
@@ -606,7 +608,7 @@ if st.session_state.get('logged_in'):
                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     
     # ----- Página Saved Uploads (Uploads anteriores) -----
-    elif page == "Saved Uploads":
+    elif st.session_state.get('page') == "Saved Uploads":
         st.header("Saved Uploads")
         upload_dir = "uploaded_files"
         if not os.path.exists(upload_dir):
@@ -642,47 +644,95 @@ if st.session_state.get('logged_in'):
                         st.error("final.xlsx file not found in the selected upload.")
     
     # ----- Página VCP (Persistent R & VCP Control) -----
-    elif page == "VCP":
+    elif st.session_state.get('page') == "VCP":
         st.header("R & VCP Tracking")
         if st.session_state.df_final is None:
             st.error("No processed data available. Please process the report first in the 'Report' page.")
         else:
+            # --- NOVA SEÇÃO: Importar tabela VCP via arquivo ---
+            st.subheader("Importar Tabela VCP")
+            st.markdown(
+                "Caso você possua uma tabela com as colunas **Nome**, **Cargo**, **Procedimento** e **Data Concluída** (no formato YYYY-MM-DD), "
+                "faça o upload do arquivo (CSV ou Excel). Essa tabela será utilizada para atualizar os campos de data e cargo."
+            )
+            vcp_table_file = st.file_uploader("Upload do arquivo (CSV ou XLSX)", type=["csv", "xlsx"], key="vcp_import")
+            imported_df = None
+            if vcp_table_file is not None:
+                try:
+                    if vcp_table_file.name.lower().endswith("csv"):
+                        imported_df = pd.read_csv(vcp_table_file)
+                    else:
+                        imported_df = pd.read_excel(vcp_table_file)
+                    
+                    # Padroniza nomes das colunas removendo espaços em branco extras
+                    imported_df.columns = [col.strip() for col in imported_df.columns]
+                    # As colunas esperadas são: "Nome", "Cargo", "Procedimento", "Data Concluída"
+                    required_columns = ["Nome", "Cargo", "Procedimento", "Data Concluída"]
+                    if not all(col in imported_df.columns for col in required_columns):
+                        st.error("O arquivo importado não contém todas as colunas necessárias: Nome, Cargo, Procedimento, Data Concluída")
+                        imported_df = None
+                    else:
+                        st.success("Tabela importada com sucesso!")
+                except Exception as e:
+                    st.error(f"Erro ao processar o arquivo importado: {e}")
+                    imported_df = None
+
+            # --- Processamento dos dados para a aba VCP ---
             # Filtra os dados processados para registros contendo "R & VCP" (case-insensitive)
             df_vcp = st.session_state.df_final.copy()
             df_vcp = df_vcp[df_vcp['procedimento_nome'].str.contains(r"R\s*&\s*VCP", case=False, na=False)]
             if df_vcp.empty:
                 st.info("No employees found for R & VCP.")
             else:
-                # Cria a tabela VCP a partir dos dados processados
+                # Cria DataFrame base a partir dos dados processados
                 df_vcp_new = pd.DataFrame({
                     "Employee": df_vcp["Unisea E-learning User"],
                     "Position (English)": df_vcp.get("cargo_en_team", df_vcp["cargo_pt_team"]),
                     "Procedure Number": df_vcp["procedimento_num_assigned"],
-                    "Date Completed": ""  # Coluna para inserção manual (YYYY-MM-DD)
+                    "Date Completed": ""  # Campo que poderá ser atualizado manualmente ou via importação
                 })
-                df_vcp_new["Due Date"] = ""  # Calculada com base na Date Completed
+                df_vcp_new["Due Date"] = ""  # Calculada com base na "Date Completed"
                 df_vcp_new["Reading"] = df_vcp["status_final"].apply(lambda x: "Completed" if str(x).lower() == "ok" else "Pending")
-                df_vcp_new["Upload"] = ""  # Coluna para salvar informações de upload
-                
+                df_vcp_new["Upload"] = ""  # Para informações de upload de arquivo
+
+                # Se a tabela foi importada, atualiza os dados
+                if imported_df is not None:
+                    # Renomeia as colunas da tabela importada para casar com as colunas da tabela VCP:
+                    # - "Nome" -> "Employee"
+                    # - "Cargo" -> "Position (English)"
+                    # - "Procedimento" -> "Procedure Number"
+                    # - "Data Concluída" -> "Date Completed"
+                    imported_df.rename(columns={
+                        "Nome": "Employee",
+                        "Cargo": "Position (English)",
+                        "Procedimento": "Procedure Number",
+                        "Data Concluída": "Date Completed"
+                    }, inplace=True)
+                    # Define a chave para merge: Employee e Procedure Number
+                    df_vcp_new.set_index(["Employee", "Procedure Number"], inplace=True)
+                    imported_df.set_index(["Employee", "Procedure Number"], inplace=True)
+                    # Atualiza os valores existentes com os dados importados
+                    df_vcp_new.update(imported_df)
+                    df_vcp_new.reset_index(inplace=True)
+
                 # Tenta carregar dados VCP previamente salvos (persistência externa)
                 persisted_vcp = load_vcp_data()
                 if persisted_vcp is not None:
-                    # Define chaves únicas a partir de "Employee" e "Procedure Number"
                     df_vcp_new.set_index(["Employee", "Procedure Number"], inplace=True)
                     persisted_vcp.set_index(["Employee", "Procedure Number"], inplace=True)
-                    
-                    # Realiza o merge: mantém os dados manuais persistidos e atualiza somente a coluna "Reading"
                     merged_vcp = persisted_vcp.combine_first(df_vcp_new)
+                    # Atualiza a coluna "Reading" com o valor calculado a partir dos dados processados
                     merged_vcp["Reading"] = df_vcp_new["Reading"]
                     merged_vcp.reset_index(inplace=True)
                     st.session_state.vcp_data = merged_vcp.copy()
                 else:
                     st.session_state.vcp_data = df_vcp_new.copy()
 
-                st.markdown("### R & VCP Table (Edit 'Date Completed' as needed in YYYY-MM-DD format)")
+                # Exibe a tabela para edição – o usuário pode alterar manualmente "Date Completed" (entre outras colunas)
+                st.markdown("### R & VCP Table (edite 'Date Completed' conforme necessário no formato YYYY-MM-DD)")
                 edited_df = st.data_editor(st.session_state.vcp_data, num_rows="dynamic", key="vcp_table")
                 
-                # Calcula "Due Date" (730 dias após "Date Completed")
+                # Função para calcular a "Due Date" adicionando 730 dias à data concluída
                 def calc_due_date(date_str):
                     try:
                         dt = datetime.strptime(date_str, "%Y-%m-%d")
@@ -692,14 +742,15 @@ if st.session_state.get('logged_in'):
                         return ""
                 
                 edited_df["Due Date"] = edited_df["Date Completed"].apply(lambda x: calc_due_date(x) if x != "" else "")
-                # --- NOVO: Coluna Status VCP ---
-                # Exibe "OK" se a Due Date for maior ou igual à data atual, "Overdue" se for menor.
-                edited_df["Status VCP"] = edited_df["Due Date"].apply(lambda d: "OK" if d != "" and datetime.strptime(d, "%Y-%m-%d").date() >= datetime.today().date() else ("Overdue" if d != "" else ""))
+                # Coluna "Status VCP": mostra "OK" se a "Due Date" ainda não venceu ou "Overdue" se já passou
+                edited_df["Status VCP"] = edited_df["Due Date"].apply(
+                    lambda d: "OK" if d != "" and datetime.strptime(d, "%Y-%m-%d").date() >= datetime.today().date() else ("Overdue" if d != "" else "")
+                )
                 
                 st.markdown("### Updated R & VCP Table")
                 st.dataframe(edited_df, height=500)
                 
-                # Seção para upload de arquivo para empregado selecionado
+                # Seção para upload de arquivo para um empregado selecionado
                 st.markdown("#### Upload File for Employee")
                 selected_employee = st.selectbox("Select Employee", edited_df["Employee"].unique())
                 uploaded_file = st.file_uploader("Drag and drop file here", type=["pdf", "docx", "xlsx"], key="vcp_upload")
@@ -717,7 +768,7 @@ if st.session_state.get('logged_in'):
                     st.success("Table changes saved!")
     
     # ----- Página Admin (Administração de Usuários) -----
-    elif page == "Admin":
+    elif st.session_state.get('page') == "Admin":
         st.header("User Administration")
         if st.session_state.username.lower() != "admin":
             st.error("Access restricted to administrators.")
@@ -748,7 +799,7 @@ if st.session_state.get('logged_in'):
                     st.experimental_rerun()
 
     # ----- Página History (Histórico de Relatórios) -----
-    elif page == "History":
+    elif st.session_state.get('page') == "History":
         st.header("Reports History")
         try:
             conn = sqlite3.connect(DB_PATH)
@@ -760,3 +811,4 @@ if st.session_state.get('logged_in'):
                 st.dataframe(df_history)
         except Exception as e:
             st.error(f"Error loading history: {e}")
+
