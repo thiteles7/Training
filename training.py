@@ -369,7 +369,7 @@ if st.session_state.get('logged_in'):
     
     st.title(f"Training Report - FPSO | Logged in as: {st.session_state.username}")
     
-    # Menu de Navegação (nomes das páginas em inglês)
+    # Menu de Navegação (páginas em inglês)
     pages = ["Report", "Filters", "Visualization", "Full Table", "Saved Uploads", "History", "VCP"]
     st.sidebar.write("Logged in user:", st.session_state.username)
     if st.session_state.username.lower() == "admin":
@@ -698,6 +698,9 @@ if st.session_state.get('logged_in'):
                         return ""
                 
                 edited_df["Due Date"] = edited_df["Date Completed"].apply(lambda x: calc_due_date(x) if x != "" else "")
+                # --- NOVO: Coluna Status VCP ---
+                # Exibe "OK" se a Due Date for maior ou igual à data atual, "Overdue" se for menor.
+                edited_df["Status VCP"] = edited_df["Due Date"].apply(lambda d: "OK" if d != "" and datetime.strptime(d, "%Y-%m-%d").date() >= datetime.today().date() else ("Overdue" if d != "" else ""))
                 
                 st.markdown("### Updated R & VCP Table")
                 st.dataframe(edited_df, height=500)
@@ -763,6 +766,3 @@ if st.session_state.get('logged_in'):
                 st.dataframe(df_history)
         except Exception as e:
             st.error(f"Error loading history: {e}")
-
-
-
