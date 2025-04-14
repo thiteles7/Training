@@ -1,4 +1,4 @@
-eu quero que nesse código que vou enviar, na aba vcp eu possa adicionar as datas não so manualmente, mas que eu possa inserir uma tabela A nome da pessoa B cargo C procedimento ingles / portugues e a data que foi fieto na D import streamlit as st  
+import streamlit as st  
 import pandas as pd
 import sqlite3
 from datetime import datetime
