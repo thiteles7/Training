@@ -722,3 +722,4 @@ if st.session_state.get('logged_in'):
         except Exception as e:
             st.error(f"Error loading history: {e}")
 
+
