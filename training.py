@@ -628,38 +628,37 @@ if st.session_state.get('logged_in'):
                     else:
                         st.error("final.xlsx file not found in the selected upload.")
     
-    # ----- VCP Page (New implementation) -----
+    # ----- VCP Page (Persistent R & VCP Control) -----
     elif page == "VCP":
         st.header("R & VCP Tracking")
         if st.session_state.df_final is None:
             st.error("No processed data available. Please process the report first in the 'Report' page.")
         else:
-            # Filter processed data for records with 'R & VCP' in the procedure name (case-insensitive)
+            # Filter processed data for records containing "R & VCP" (case-insensitive)
             df_vcp = st.session_state.df_final.copy()
             df_vcp = df_vcp[df_vcp['procedimento_nome'].str.contains(r"R\s*&\s*VCP", case=False, na=False)]
             if df_vcp.empty:
                 st.info("No employees found for R & VCP.")
             else:
-                # Build a new DataFrame with the required columns:
-                # - Employee: from "Unisea E-learning User"
-                # - Position (English): from "cargo_en_team" (if available) or "cargo_pt_team"
-                # - Procedure Number: from "procedimento_num_assigned"
-                # - Date Completed: to be manually entered
-                # - Due Date: computed as 730 days after the Date Completed
-                # - Reading: "Completed" if status_final is "OK", otherwise "Pending"
+                # Build a DataFrame with the required columns
                 df_vcp_new = pd.DataFrame({
                     "Employee": df_vcp["Unisea E-learning User"],
                     "Position (English)": df_vcp.get("cargo_en_team", df_vcp["cargo_pt_team"]),
                     "Procedure Number": df_vcp["procedimento_num_assigned"],
-                    "Date Completed": ""  # initially empty; user will fill this column (format: YYYY-MM-DD)
+                    "Date Completed": ""  # initially empty; user fills in the date (YYYY-MM-DD)
                 })
-                df_vcp_new["Due Date"] = ""  # will be calculated later
+                df_vcp_new["Due Date"] = ""  # to be calculated later
                 df_vcp_new["Reading"] = df_vcp["status_final"].apply(lambda x: "Completed" if str(x).lower() == "ok" else "Pending")
                 
-                st.markdown("### Enter the completion date for R & VCP for each employee (format: YYYY-MM-DD)")
-                edited_df = st.experimental_data_editor(df_vcp_new, num_rows="dynamic", key="vcp_table")
+                # Persist the VCP data so that manual changes remain fixed
+                if "vcp_data" not in st.session_state:
+                    st.session_state.vcp_data = df_vcp_new.copy()
                 
-                # Function to calculate Due Date (730 days after the Date Completed)
+                st.markdown("### R & VCP Control Table (Edit the 'Date Completed' as needed in YYYY-MM-DD format)")
+                # Use the persisted data in session_state
+                edited_df = st.experimental_data_editor(st.session_state.vcp_data, num_rows="dynamic", key="vcp_table")
+                
+                # Function to calculate Due Date (730 days after Date Completed)
                 def calc_due_date(date_str):
                     try:
                         dt = datetime.strptime(date_str, "%Y-%m-%d")
@@ -668,11 +667,15 @@ if st.session_state.get('logged_in'):
                     except Exception:
                         return ""
                 
-                # Recalculate the "Due Date" column based on the entered "Date Completed"
                 edited_df["Due Date"] = edited_df["Date Completed"].apply(lambda x: calc_due_date(x) if x != "" else "")
                 
                 st.markdown("### Updated R & VCP Table")
                 st.dataframe(edited_df)
+                
+                # Button to save manual changes permanently (within the session)
+                if st.button("Save Changes"):
+                    st.session_state.vcp_data = edited_df.copy()
+                    st.success("Changes saved!")
     
     # ----- Admin Page (User Administration) -----
     elif page == "Admin":
@@ -718,3 +721,4 @@ if st.session_state.get('logged_in'):
                 st.dataframe(df_history)
         except Exception as e:
             st.error(f"Error loading history: {e}")
+
