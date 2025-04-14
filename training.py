@@ -179,7 +179,7 @@ def normalize_text(text):
 # ========================
 def process_data(team_file, train_file, control_file, training_type_file=None, unisea_file=None, fuzzy_threshold=80):
     try:
-        # Read the Team file and split position columns
+        # Read Team file and split the position columns
         df_team = pd.read_excel(team_file)
         if "Position in Matrix" not in df_team.columns:
             st.error("Column 'Position in Matrix' not found in Team.xlsx.")
@@ -351,7 +351,7 @@ if st.session_state.get('logged_in'):
     st.title(f"Training Report - FPSO | Logged in as: {st.session_state.username}")
     
     # Navigation Menu (page names in English)
-    pages = ["Report", "Filters", "Visualization", "Full Table", "Saved Uploads", "History"]
+    pages = ["Report", "Filters", "Visualization", "Full Table", "Saved Uploads", "History", "VCP"]
     st.sidebar.write("Logged in user:", st.session_state.username)
     if st.session_state.username.lower() == "admin":
         pages.append("Admin")
@@ -628,6 +628,52 @@ if st.session_state.get('logged_in'):
                     else:
                         st.error("final.xlsx file not found in the selected upload.")
     
+    # ----- VCP Page (New implementation) -----
+    elif page == "VCP":
+        st.header("R & VCP Tracking")
+        if st.session_state.df_final is None:
+            st.error("No processed data available. Please process the report first in the 'Report' page.")
+        else:
+            # Filter processed data for records with 'R & VCP' in the procedure name (case-insensitive)
+            df_vcp = st.session_state.df_final.copy()
+            df_vcp = df_vcp[df_vcp['procedimento_nome'].str.contains(r"R\s*&\s*VCP", case=False, na=False)]
+            if df_vcp.empty:
+                st.info("No employees found for R & VCP.")
+            else:
+                # Build a new DataFrame with the required columns:
+                # - Employee: from "Unisea E-learning User"
+                # - Position (English): from "cargo_en_team" (if available) or "cargo_pt_team"
+                # - Procedure Number: from "procedimento_num_assigned"
+                # - Date Completed: to be manually entered
+                # - Due Date: computed as 730 days after the Date Completed
+                # - Reading: "Completed" if status_final is "OK", otherwise "Pending"
+                df_vcp_new = pd.DataFrame({
+                    "Employee": df_vcp["Unisea E-learning User"],
+                    "Position (English)": df_vcp.get("cargo_en_team", df_vcp["cargo_pt_team"]),
+                    "Procedure Number": df_vcp["procedimento_num_assigned"],
+                    "Date Completed": ""  # initially empty; user will fill this column (format: YYYY-MM-DD)
+                })
+                df_vcp_new["Due Date"] = ""  # will be calculated later
+                df_vcp_new["Reading"] = df_vcp["status_final"].apply(lambda x: "Completed" if str(x).lower() == "ok" else "Pending")
+                
+                st.markdown("### Enter the completion date for R & VCP for each employee (format: YYYY-MM-DD)")
+                edited_df = st.experimental_data_editor(df_vcp_new, num_rows="dynamic", key="vcp_table")
+                
+                # Function to calculate Due Date (730 days after the Date Completed)
+                def calc_due_date(date_str):
+                    try:
+                        dt = datetime.strptime(date_str, "%Y-%m-%d")
+                        due = dt + pd.Timedelta(days=730)
+                        return due.strftime("%Y-%m-%d")
+                    except Exception:
+                        return ""
+                
+                # Recalculate the "Due Date" column based on the entered "Date Completed"
+                edited_df["Due Date"] = edited_df["Date Completed"].apply(lambda x: calc_due_date(x) if x != "" else "")
+                
+                st.markdown("### Updated R & VCP Table")
+                st.dataframe(edited_df)
+    
     # ----- Admin Page (User Administration) -----
     elif page == "Admin":
         st.header("User Administration")
@@ -672,4 +718,3 @@ if st.session_state.get('logged_in'):
                 st.dataframe(df_history)
         except Exception as e:
             st.error(f"Error loading history: {e}")
-
