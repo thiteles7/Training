@@ -650,13 +650,13 @@ if st.session_state.get('logged_in'):
                 df_vcp_new["Due Date"] = ""  # to be calculated later
                 df_vcp_new["Reading"] = df_vcp["status_final"].apply(lambda x: "Completed" if str(x).lower() == "ok" else "Pending")
                 
-                # Persist the VCP data so that manual changes remain fixed
+                # Persist the VCP data so that manual changes remain fixed during the session
                 if "vcp_data" not in st.session_state:
                     st.session_state.vcp_data = df_vcp_new.copy()
                 
                 st.markdown("### R & VCP Control Table (Edit the 'Date Completed' as needed in YYYY-MM-DD format)")
-                # Use the persisted data in session_state
-                edited_df = st.experimental_data_editor(st.session_state.vcp_data, num_rows="dynamic", key="vcp_table")
+                # Use st.data_editor instead of experimental_data_editor
+                edited_df = st.data_editor(st.session_state.vcp_data, num_rows="dynamic", key="vcp_table")
                 
                 # Function to calculate Due Date (730 days after Date Completed)
                 def calc_due_date(date_str):
