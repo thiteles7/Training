@@ -457,7 +457,7 @@ if st.session_state.get('logged_in'):
                                 with open(team_path, "wb") as f:
                                     f.write(team_file_new.getbuffer())
                             train_path = os.path.join(last_session, "Trainings.xlsx")
-                            if train_file_new is not None:
+                            if team_file_new is not None:
                                 with open(train_path, "wb") as f:
                                     f.write(train_file_new.getbuffer())
                             control_path = os.path.join(last_session, "Control.xlsx")
@@ -615,71 +615,59 @@ if st.session_state.get('logged_in'):
                         st.error("final.xlsx file not found in the selected upload.")
     
     # ----- Aba VCP -----
+    # Nesta aba, removemos o widget de upload (não necessário) e a atualização dos campos "Due Date"
+    # e "Status VCP" somente ocorrerá quando o botão "Save Table Changes" for clicado.
     with tabs[5] if st.session_state.username.lower() != "admin" else tabs[6]:
         st.header("R & VCP Tracking")
         if st.session_state.get('df_final') is None:
             st.error("No processed data available. Please process the report first in the 'Report' tab.")
         else:
-            # --- Seção para importar tabela VCP via arquivo ---
-            st.subheader("Importar Tabela VCP")
-            st.markdown(
-                "Caso você possua uma tabela com as colunas **Nome**, **Cargo**, **Procedimento** e **Data Concluída** (no formato YYYY-MM-DD), "
-                "faça o upload do arquivo (CSV ou Excel). Essa tabela será utilizada para atualizar os campos de data e cargo."
-            )
-            vcp_table_file = st.file_uploader("Upload do arquivo (CSV ou XLSX)", type=["csv", "xlsx"], key="vcp_import")
-            imported_df = None
-            if vcp_table_file is not None:
-                try:
-                    if vcp_table_file.name.lower().endswith("csv"):
-                        imported_df = pd.read_csv(vcp_table_file)
-                    else:
-                        imported_df = pd.read_excel(vcp_table_file)
-                    
-                    # Padroniza nomes das colunas removendo espaços em branco extras
-                    imported_df.columns = [col.strip() for col in imported_df.columns]
-                    # As colunas esperadas são: "Nome", "Cargo", "Procedimento", "Data Concluída"
-                    required_columns = ["Nome", "Cargo", "Procedimento", "Data Concluída"]
-                    if not all(col in imported_df.columns for col in required_columns):
-                        st.error("O arquivo importado não contém todas as colunas necessárias: Nome, Cargo, Procedimento, Data Concluída")
-                        imported_df = None
-                    else:
-                        st.success("Tabela importada com sucesso!")
-                except Exception as e:
-                    st.error(f"Erro ao processar o arquivo importado: {e}")
-                    imported_df = None
-
-            # Filtra os dados processados para registros contendo "R & VCP" (case-insensitive)
+            # Cria DataFrame base a partir dos dados processados filtrando "R & VCP"
             df_vcp = st.session_state.df_final.copy()
             df_vcp = df_vcp[df_vcp['procedimento_nome'].str.contains(r"R\s*&\s*VCP", case=False, na=False)]
             if df_vcp.empty:
                 st.info("No employees found for R & VCP.")
             else:
-                # Cria DataFrame base a partir dos dados processados
                 df_vcp_new = pd.DataFrame({
                     "Employee": df_vcp["Unisea E-learning User"],
                     "Position (English)": df_vcp.get("cargo_en_team", df_vcp["cargo_pt_team"]),
                     "Procedure Number": df_vcp["procedimento_num_assigned"],
-                    "Date Completed": ""  # Campo para preenchimento manual ou importado
+                    "Date Completed": ""  # Campo para preenchimento manual ou já inserido
                 })
-                df_vcp_new["Due Date"] = ""  # Calculada com base na "Date Completed"
+                df_vcp_new["Due Date"] = ""  # Será calculada somente quando salvar
                 df_vcp_new["Reading"] = df_vcp["status_final"].apply(lambda x: "Completed" if str(x).lower() == "ok" else "Pending")
-                df_vcp_new["Upload"] = ""  # Para informações de upload de arquivo
+                df_vcp_new["Upload"] = ""  # Não será utilizado agora
 
-                # Se houver tabela importada, atualiza os dados
-                if imported_df is not None:
-                    imported_df.rename(columns={
-                        "Nome": "Employee",
-                        "Cargo": "Position (English)",
-                        "Procedimento": "Procedure Number",
-                        "Data Concluída": "Date Completed"
-                    }, inplace=True)
-                    # Define chave para merge: Employee e Procedure Number
-                    df_vcp_new.set_index(["Employee", "Procedure Number"], inplace=True)
-                    imported_df.set_index(["Employee", "Procedure Number"], inplace=True)
-                    df_vcp_new.update(imported_df)
-                    df_vcp_new.reset_index(inplace=True)
-
-                # Tenta carregar dados VCP previamente salvos (persistência externa)
+                # Se houver tabela importada para VCP (mantemos o merge caso o usuário já tenha importado antes)
+                # OBS.: Se não for necessária a importação, este trecho pode ser removido.
+                vcp_table_file = st.file_uploader("Upload do arquivo VCP (CSV ou XLSX)", type=["csv", "xlsx"], key="vcp_import_optional")
+                if vcp_table_file is not None:
+                    try:
+                        if vcp_table_file.name.lower().endswith("csv"):
+                            imported_vcp = pd.read_csv(vcp_table_file)
+                        else:
+                            imported_vcp = pd.read_excel(vcp_table_file)
+                        imported_vcp.columns = [col.strip() for col in imported_vcp.columns]
+                        required_columns = ["Nome", "Cargo", "Procedimento", "Data Concluída"]
+                        if not all(col in imported_vcp.columns for col in required_columns):
+                            st.error("O arquivo importado não contém todas as colunas necessárias: Nome, Cargo, Procedimento, Data Concluída")
+                        else:
+                            st.success("Tabela VCP importada com sucesso!")
+                            imported_vcp.rename(columns={
+                                "Nome": "Employee",
+                                "Cargo": "Position (English)",
+                                "Procedimento": "Procedure Number",
+                                "Data Concluída": "Date Completed"
+                            }, inplace=True)
+                            # Define chave para merge, e atualiza os dados de data
+                            df_vcp_new.set_index(["Employee", "Procedure Number"], inplace=True)
+                            imported_vcp.set_index(["Employee", "Procedure Number"], inplace=True)
+                            df_vcp_new.update(imported_vcp)
+                            df_vcp_new.reset_index(inplace=True)
+                    except Exception as e:
+                        st.error(f"Erro ao processar o arquivo opcional: {e}")
+                
+                # Atualização de dados persistidos (mantém os dados se já houver CSV salvo)
                 persisted_vcp = load_vcp_data()
                 if persisted_vcp is not None:
                     df_vcp_new.set_index(["Employee", "Procedure Number"], inplace=True)
@@ -690,38 +678,26 @@ if st.session_state.get('logged_in'):
                     st.session_state.vcp_data = merged_vcp.copy()
                 else:
                     st.session_state.vcp_data = df_vcp_new.copy()
-
+                
                 st.markdown("### R & VCP Table (edite 'Date Completed' conforme necessário no formato YYYY-MM-DD)")
+                # O editor exibirá a tabela sem atualizar Due Date e Status VCP em tempo real
                 edited_df = st.data_editor(st.session_state.vcp_data, num_rows="dynamic", key="vcp_table")
                 
-                # Função para calcular "Due Date" adicionando 730 dias à data concluída
-                def calc_due_date(date_str):
-                    try:
-                        dt = datetime.strptime(date_str, "%Y-%m-%d")
-                        due = dt + pd.Timedelta(days=730)
-                        return due.strftime("%Y-%m-%d")
-                    except Exception:
-                        return ""
-                
-                edited_df["Due Date"] = edited_df["Date Completed"].apply(lambda x: calc_due_date(x) if x != "" else "")
-                edited_df["Status VCP"] = edited_df["Due Date"].apply(
-                    lambda d: "OK" if d != "" and datetime.strptime(d, "%Y-%m-%d").date() >= datetime.today().date() else ("Overdue" if d != "" else "")
-                )
-                
-                st.markdown("### Updated R & VCP Table")
-                st.dataframe(edited_df, height=500)
-                
-                st.markdown("#### Upload File for Employee")
-                selected_employee = st.selectbox("Select Employee", edited_df["Employee"].unique())
-                uploaded_file = st.file_uploader("Drag and drop file here", type=["pdf", "docx", "xlsx"], key="vcp_upload")
-                if uploaded_file is not None:
-                    idx = edited_df.index[edited_df["Employee"] == selected_employee].tolist()
-                    if idx:
-                        edited_df.at[idx[0], "Upload"] = uploaded_file.name
-                        st.success(f"File '{uploaded_file.name}' uploaded for {selected_employee}.")
-                        st.session_state.vcp_data = edited_df.copy()
-                
+                # Botão para salvar as alterações – somente então os campos "Due Date" e "Status VCP" serão recalculados
                 if st.button("Save Table Changes"):
+                    # Função para calcular a "Due Date" (730 dias após a data concluída)
+                    def calc_due_date(date_str):
+                        try:
+                            dt = datetime.strptime(date_str, "%Y-%m-%d")
+                            due = dt + pd.Timedelta(days=730)
+                            return due.strftime("%Y-%m-%d")
+                        except Exception:
+                            return ""
+                    
+                    edited_df["Due Date"] = edited_df["Date Completed"].apply(lambda x: calc_due_date(x) if x != "" else "")
+                    edited_df["Status VCP"] = edited_df["Due Date"].apply(
+                        lambda d: "OK" if d != "" and datetime.strptime(d, "%Y-%m-%d").date() >= datetime.today().date() else ("Overdue" if d != "" else "")
+                    )
                     st.session_state.vcp_data = edited_df.copy()
                     save_vcp_data(edited_df)
                     st.success("Table changes saved!")
