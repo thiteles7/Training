@@ -683,7 +683,7 @@ if st.session_state.get('logged_in'):
                 persisted_vcp = load_vcp_data()
                 if persisted_vcp is not None:
                     df_vcp_new.set_index(["Employee", "Procedure Number"], inplace=True)
-                    persisted_vcp.set_index(["Employee", "Procedure Number"], inplace=True)
+                    persisted_vcp.set_index(["Employee"], inplace=True)
                     merged_vcp = persisted_vcp.combine_first(df_vcp_new)
                     merged_vcp["Reading"] = df_vcp_new["Reading"]
                     merged_vcp.reset_index(inplace=True)
