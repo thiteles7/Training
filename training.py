@@ -615,8 +615,7 @@ if st.session_state.get('logged_in'):
                         st.error("final.xlsx file not found in the selected upload.")
     
     # ----- Aba VCP -----
-    # Para determinar o índice da aba VCP, verificamos se o usuário é admin ou não.
-    # Se não for admin, VCP estará na posição 6; caso admin, a aba "Admin" foi adicionada ao final.
+    # Se o usuário for admin, a aba VCP está na posição 7; se não, na posição 6.
     with tabs[5] if st.session_state.username.lower() != "admin" else tabs[6]:
         st.header("R & VCP Tracking")
         if st.session_state.get('df_final') is None:
@@ -662,7 +661,7 @@ if st.session_state.get('logged_in'):
                     "Employee": df_vcp["Unisea E-learning User"],
                     "Position (English)": df_vcp.get("cargo_en_team", df_vcp["cargo_pt_team"]),
                     "Procedure Number": df_vcp["procedimento_num_assigned"],
-                    "Date Completed": ""  # Inicialmente em branco, será atualizado manualmente ou via importação
+                    "Date Completed": ""  # Inicialmente em branco
                 })
                 df_vcp_new["Due Date"] = ""  # Calculada com base na "Date Completed"
                 df_vcp_new["Reading"] = df_vcp["status_final"].apply(lambda x: "Completed" if str(x).lower() == "ok" else "Pending")
@@ -678,8 +677,8 @@ if st.session_state.get('logged_in'):
                         "Procedimento 2": "Procedure Number 2",
                         "Data Concluído": "Date Completed"
                     }, inplace=True)
-                    # Para cada linha da tabela importada, procure no df_vcp_new onde o Employee bate e o "Procedure Number"
-                    # corresponde a algum dos dois procedimentos informados.
+                    # Para cada linha da tabela importada, atualiza a data no df_vcp_new, se o Employee coincidir e se o
+                    # "Procedure Number" corresponder a Procedimento 1 ou Procedimento 2.
                     for idx, imp_row in imported_df.iterrows():
                         emp = str(imp_row["Employee"]).strip()
                         proc1 = str(imp_row["Procedure Number 1"]).strip()
@@ -691,15 +690,16 @@ if st.session_state.get('logged_in'):
                         )
                         df_vcp_new.loc[condition, "Date Completed"] = date_completed
 
-                # Tenta carregar dados VCP previamente salvos (persistência externa)
+                # Agora, para atualizar a tabela de controle de VCP persistida com as novas datas,
+                # se houver dados persistidos, usamos update para sobrescrever as datas.
                 persisted_vcp = load_vcp_data()
                 if persisted_vcp is not None:
                     df_vcp_new.set_index(["Employee", "Procedure Number"], inplace=True)
                     persisted_vcp.set_index(["Employee", "Procedure Number"], inplace=True)
-                    merged_vcp = persisted_vcp.combine_first(df_vcp_new)
-                    merged_vcp["Reading"] = df_vcp_new["Reading"]
-                    merged_vcp.reset_index(inplace=True)
-                    st.session_state.vcp_data = merged_vcp.copy()
+                    # Atualiza todas as colunas do persisted_vcp com os valores de df_vcp_new (sobrescrevendo, por exemplo, a data)
+                    persisted_vcp.update(df_vcp_new)
+                    persisted_vcp.reset_index(inplace=True)
+                    st.session_state.vcp_data = persisted_vcp.copy()
                 else:
                     st.session_state.vcp_data = df_vcp_new.copy()
 
@@ -716,7 +716,6 @@ if st.session_state.get('logged_in'):
                         return ""
                 
                 edited_df["Due Date"] = edited_df["Date Completed"].apply(lambda x: calc_due_date(x) if x != "" else "")
-                # Coluna "Status VCP": "OK" se a Due Date for maior ou igual à data atual, "Overdue" se menor.
                 edited_df["Status VCP"] = edited_df["Due Date"].apply(
                     lambda d: "OK" if d != "" and datetime.strptime(d, "%Y-%m-%d").date() >= datetime.today().date() else ("Overdue" if d != "" else "")
                 )
