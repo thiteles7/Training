@@ -1,5 +1,6 @@
-streamlit
-pandas
-matplotlib
-rapidfuzz
-openpyxl
+streamlit>=1.17.0
+pandas>=1.4.0
+matplotlib>=3.5.0
+openpyxl>=3.1.0
+rapidfuzz>=2.13.7
+
