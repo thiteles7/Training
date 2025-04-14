@@ -342,7 +342,7 @@ if not st.session_state.logged_in:
 if st.session_state.get('logged_in'):
     st.title(f"Training Report - FPSO | Logged in as: {st.session_state.username}")
     
-    # Define as abas de navegação; inclua "Admin" somente para o usuário admin
+    # Define as abas de navegação; "Admin" somente para o usuário admin
     tabs_list = ["Report", "Filters", "Visualization", "Full Table", "Saved Uploads", "History", "VCP"]
     if st.session_state.username.lower() == "admin":
         tabs_list.append("Admin")
@@ -420,7 +420,7 @@ if st.session_state.get('logged_in'):
                         email_body = "The report was processed successfully. Attached is the final file."
                         send_email(email_subject, email_body, EMAIL_RECIPIENT, attachment_path=final_data_path)
         
-        else:  # Use Last Upload with individual replacement
+        else:  # Use Last Upload com substituição individual
             upload_dir = "uploaded_files"
             if not os.path.exists(upload_dir):
                 st.error("No saved upload found. Please do a new upload.")
@@ -615,6 +615,8 @@ if st.session_state.get('logged_in'):
                         st.error("final.xlsx file not found in the selected upload.")
     
     # ----- Aba VCP -----
+    # Para determinar o índice da aba VCP, verificamos se o usuário é admin ou não.
+    # Se não for admin, VCP estará na posição 6; caso admin, a aba "Admin" foi adicionada ao final.
     with tabs[5] if st.session_state.username.lower() != "admin" else tabs[6]:
         st.header("R & VCP Tracking")
         if st.session_state.get('df_final') is None:
@@ -623,8 +625,9 @@ if st.session_state.get('logged_in'):
             # --- Seção para importar tabela VCP via arquivo ---
             st.subheader("Importar Tabela VCP")
             st.markdown(
-                "Caso você possua uma tabela com as colunas **Nome**, **Cargo**, **Procedimento** e **Data Concluída** (no formato YYYY-MM-DD), "
-                "faça o upload do arquivo (CSV ou Excel). Essa tabela será utilizada para atualizar os campos de data e cargo."
+                "Caso você possua uma tabela com as colunas **Nome**, **Cargo**, **Procedimento 1**, **Procedimento 2** e **Data Concluído** (no formato YYYY-MM-DD), "
+                "faça o upload do arquivo (CSV ou Excel). Essa tabela será utilizada para atualizar o campo 'Date Completed' na tabela, "
+                "fazendo o cross-check do nome e verificando se o procedimento presente no relatório corresponde a algum dos dois procedimentos informados."
             )
             vcp_table_file = st.file_uploader("Upload do arquivo (CSV ou XLSX)", type=["csv", "xlsx"], key="vcp_import")
             imported_df = None
@@ -637,10 +640,10 @@ if st.session_state.get('logged_in'):
                     
                     # Padroniza nomes das colunas removendo espaços em branco extras
                     imported_df.columns = [col.strip() for col in imported_df.columns]
-                    # As colunas esperadas são: "Nome", "Cargo", "Procedimento", "Data Concluída"
-                    required_columns = ["Nome", "Cargo", "Procedimento", "Data Concluída"]
+                    # As colunas esperadas: "Nome", "Cargo", "Procedimento 1", "Procedimento 2", "Data Concluído"
+                    required_columns = ["Nome", "Cargo", "Procedimento 1", "Procedimento 2", "Data Concluído"]
                     if not all(col in imported_df.columns for col in required_columns):
-                        st.error("O arquivo importado não contém todas as colunas necessárias: Nome, Cargo, Procedimento, Data Concluída")
+                        st.error("O arquivo importado não contém todas as colunas necessárias: Nome, Cargo, Procedimento 1, Procedimento 2, Data Concluído")
                         imported_df = None
                     else:
                         st.success("Tabela importada com sucesso!")
@@ -659,25 +662,34 @@ if st.session_state.get('logged_in'):
                     "Employee": df_vcp["Unisea E-learning User"],
                     "Position (English)": df_vcp.get("cargo_en_team", df_vcp["cargo_pt_team"]),
                     "Procedure Number": df_vcp["procedimento_num_assigned"],
-                    "Date Completed": ""  # Campo para preenchimento manual ou importado
+                    "Date Completed": ""  # Inicialmente em branco, será atualizado manualmente ou via importação
                 })
                 df_vcp_new["Due Date"] = ""  # Calculada com base na "Date Completed"
                 df_vcp_new["Reading"] = df_vcp["status_final"].apply(lambda x: "Completed" if str(x).lower() == "ok" else "Pending")
                 df_vcp_new["Upload"] = ""  # Para informações de upload de arquivo
 
-                # Se houver tabela importada, atualiza os dados
+                # Se houver tabela importada, faça o cross-check:
                 if imported_df is not None:
+                    # Renomeia as colunas para casar com nosso padrão
                     imported_df.rename(columns={
                         "Nome": "Employee",
                         "Cargo": "Position (English)",
-                        "Procedimento": "Procedure Number",
-                        "Data Concluída": "Date Completed"
+                        "Procedimento 1": "Procedure Number 1",
+                        "Procedimento 2": "Procedure Number 2",
+                        "Data Concluído": "Date Completed"
                     }, inplace=True)
-                    # Define chave para merge: Employee e Procedure Number
-                    df_vcp_new.set_index(["Employee", "Procedure Number"], inplace=True)
-                    imported_df.set_index(["Employee", "Procedure Number"], inplace=True)
-                    df_vcp_new.update(imported_df)
-                    df_vcp_new.reset_index(inplace=True)
+                    # Para cada linha da tabela importada, procure no df_vcp_new onde o Employee bate e o "Procedure Number"
+                    # corresponde a algum dos dois procedimentos informados.
+                    for idx, imp_row in imported_df.iterrows():
+                        emp = str(imp_row["Employee"]).strip()
+                        proc1 = str(imp_row["Procedure Number 1"]).strip()
+                        proc2 = str(imp_row["Procedure Number 2"]).strip()
+                        date_completed = imp_row["Date Completed"]
+                        condition = (df_vcp_new["Employee"].str.strip() == emp) & (
+                            (df_vcp_new["Procedure Number"].astype(str).str.strip() == proc1) |
+                            (df_vcp_new["Procedure Number"].astype(str).str.strip() == proc2)
+                        )
+                        df_vcp_new.loc[condition, "Date Completed"] = date_completed
 
                 # Tenta carregar dados VCP previamente salvos (persistência externa)
                 persisted_vcp = load_vcp_data()
@@ -694,7 +706,7 @@ if st.session_state.get('logged_in'):
                 st.markdown("### R & VCP Table (edite 'Date Completed' conforme necessário no formato YYYY-MM-DD)")
                 edited_df = st.data_editor(st.session_state.vcp_data, num_rows="dynamic", key="vcp_table")
                 
-                # Função para calcular "Due Date" adicionando 730 dias à data concluída
+                # Função para calcular a "Due Date" adicionando 730 dias à data concluída
                 def calc_due_date(date_str):
                     try:
                         dt = datetime.strptime(date_str, "%Y-%m-%d")
@@ -704,6 +716,7 @@ if st.session_state.get('logged_in'):
                         return ""
                 
                 edited_df["Due Date"] = edited_df["Date Completed"].apply(lambda x: calc_due_date(x) if x != "" else "")
+                # Coluna "Status VCP": "OK" se a Due Date for maior ou igual à data atual, "Overdue" se menor.
                 edited_df["Status VCP"] = edited_df["Due Date"].apply(
                     lambda d: "OK" if d != "" and datetime.strptime(d, "%Y-%m-%d").date() >= datetime.today().date() else ("Overdue" if d != "" else "")
                 )
