@@ -342,7 +342,7 @@ if st.session_state.get('logged_in'):
     st.title(f"Training Report - FPSO | Logged in as: {st.session_state.username}")
     
     # Define as abas de navegação; inclui "Admin" somente para o usuário admin
-    tabs_list = ["Report", "Filters", "Visualization", "Full Table", "Saved Uploads", "History", "VCP"]
+    tabs_list = ["Report", "Filters", "Visualization", "Full Table", "Saved Uploads", "History", "VCP", "Relatório Gerencial"]
     if st.session_state.username.lower() == "admin":
         tabs_list.append("Admin")
     tabs = st.tabs(tabs_list)
