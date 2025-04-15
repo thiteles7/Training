@@ -613,67 +613,75 @@ if st.session_state.get('logged_in'):
                     else:
                         st.error("final.xlsx file not found in the selected upload.")
     
-    # ----- Aba VCP -----
-    # Utiliza a aba "VCP" conforme definida na lista
-    vcp_index = tabs_list.index("VCP")
-    with tabs[vcp_index]:
-        st.header("R & VCP Tracking")
-        if st.session_state.get('df_final') is None:
-            st.error("No processed data available. Please process the report first in the 'Report' tab.")
-        else:
-            # Filtra os dados processados para registros onde a coluna 'requisito' contenha "R & VCP"
-            df_vcp = st.session_state.df_final.copy()
-            df_vcp = df_vcp[df_vcp['requisito'].str.contains("R & VCP", case=False, na=False)]
-            if df_vcp.empty:
-                st.info("No employees found for R & VCP.")
-            else:
-                # Cria DataFrame base com as colunas desejadas do processo
-                df_vcp_new = df_vcp[["Unisea E-learning User", "cargo_en_team", "procedimento_num_assigned", "procedimento_num_alternative"]].copy()
-                df_vcp_new.rename(columns={
-                    "Unisea E-learning User": "Employee",
-                    "cargo_en_team": "Position (English)",
-                    "procedimento_num_assigned": "Procedure Number Assigned",
-                    "procedimento_num_alternative": "Procedure Number Alternative"
-                }, inplace=True)
-                # Adiciona colunas para entrada manual e cálculos
-                df_vcp_new["Date Completed"] = ""  # Para preenchimento manual
-                df_vcp_new["Due Date"] = ""         # Será calculada a partir de "Date Completed"
-                df_vcp_new["Status VCP"] = ""       # Será recalculada a partir de "Due Date"
-                df_vcp_new["Reading"] = ""          # Indicador baseado no Status VCP (ex.: "Completed" ou "Pending")
-                
-                st.markdown("### R & VCP Table (edit 'Date Completed' as needed, format YYYY-MM-DD)")
-                edited_df = st.data_editor(df_vcp_new, num_rows="dynamic", key="vcp_table")
-                
-                st.markdown("#### Upload File for Employee")
-                selected_employee = st.selectbox("Select Employee", edited_df["Employee"].unique())
-                uploaded_file = st.file_uploader("Drag and drop file here", type=["pdf", "docx", "xlsx"], key="vcp_upload")
-                if uploaded_file is not None:
-                    idx = edited_df.index[edited_df["Employee"] == selected_employee].tolist()
-                    if idx:
-                        edited_df.at[idx[0], "Upload"] = uploaded_file.name
-                        st.success(f"File '{uploaded_file.name}' uploaded for {selected_employee}.")
-                        st.session_state.vcp_data = edited_df.copy()
+# ----- Aba VCP -----
+vcp_index = tabs_list.index("VCP")
+with tabs[vcp_index]:
+    st.header("R & VCP Tracking")
+    
+    # Tabela fixa como modelo para controle de VCP
+    fixed_data = [
+        {
+            "Employee": "Employee 1",
+            "Position (English)": "Position 1",
+            "Procedure Number Assigned": "P001",
+            "Procedure Number Alternative": "P101",
+            "Date Completed": "",   # Para preenchimento manual (formato YYYY-MM-DD)
+            "Due Date": "",         # Será calculada a partir de "Date Completed"
+            "Status VCP": "",       # Será calculada a partir de "Due Date"
+            "Reading": ""           # Indicador baseado no Status VCP (ex.: "Completed" ou "Pending")
+        },
+        {
+            "Employee": "Employee 2",
+            "Position (English)": "Position 2",
+            "Procedure Number Assigned": "P002",
+            "Procedure Number Alternative": "P102",
+            "Date Completed": "",
+            "Due Date": "",
+            "Status VCP": "",
+            "Reading": ""
+        },
+        # Adicione mais linhas conforme necessário
+    ]
+    df_fixed_vcp = pd.DataFrame(fixed_data)
+    
+    st.markdown("### Fixed R & VCP Control Table (edit 'Date Completed' as needed, format YYYY-MM-DD)")
+    edited_df = st.data_editor(df_fixed_vcp, num_rows="dynamic", key="vcp_table_fixed")
+    
+    st.markdown("#### Upload File for Employee")
+    selected_employee = st.selectbox("Select Employee", edited_df["Employee"].unique())
+    uploaded_file = st.file_uploader("Drag and drop file here", type=["pdf", "docx", "xlsx"], key="vcp_upload")
+    if uploaded_file is not None:
+        idx = edited_df.index[edited_df["Employee"] == selected_employee].tolist()
+        if idx:
+            edited_df.at[idx[0], "Upload"] = uploaded_file.name
+            st.success(f"File '{uploaded_file.name}' uploaded for {selected_employee}.")
+            st.session_state.vcp_data = edited_df.copy()
+    
+    # Botão para salvar mudanças e recalcular as colunas
+    if st.button("Save Table Changes"):
+        def calc_due_date(date_str):
+            try:
+                dt = datetime.strptime(date_str, "%Y-%m-%d")
+                due = dt + pd.Timedelta(days=730)  # Exemplo: 730 dias (2 anos) a partir da data completada
+                return due.strftime("%Y-%m-%d")
+            except Exception:
+                return ""
+        
+        edited_df["Due Date"] = edited_df["Date Completed"].apply(lambda x: calc_due_date(x) if x != "" else "")
+        edited_df["Status VCP"] = edited_df["Due Date"].apply(
+            lambda d: "OK" if d != "" and datetime.strptime(d, "%Y-%m-%d").date() >= datetime.today().date()
+            else ("Overdue" if d != "" else "")
+        )
+        edited_df["Reading"] = edited_df["Status VCP"].apply(
+            lambda s: "Completed" if s == "OK" else ("Pending" if s == "Overdue" else "")
+        )
+        
+        st.session_state.vcp_data = edited_df.copy()
+        save_vcp_data(edited_df)
+        st.success("Table changes saved!")
+        st.markdown("### Updated R & VCP Table")
+        st.dataframe(edited_df, height=500)
 
-                # Ao clicar em "Save Table Changes", recalcula Due Date, Status VCP e Reading
-                if st.button("Save Table Changes"):
-                    def calc_due_date(date_str):
-                        try:
-                            dt = datetime.strptime(date_str, "%Y-%m-%d")
-                            due = dt + pd.Timedelta(days=730)
-                            return due.strftime("%Y-%m-%d")
-                        except Exception:
-                            return ""
-                    edited_df["Due Date"] = edited_df["Date Completed"].apply(lambda x: calc_due_date(x) if x != "" else "")
-                    edited_df["Status VCP"] = edited_df["Due Date"].apply(
-                        lambda d: "OK" if d != "" and datetime.strptime(d, "%Y-%m-%d").date() >= datetime.today().date() 
-                        else ("Overdue" if d != "" else "")
-                    )
-                    edited_df["Reading"] = edited_df["Status VCP"].apply(lambda s: "Completed" if s=="OK" else ("Pending" if s=="Overdue" else ""))
-                    st.session_state.vcp_data = edited_df.copy()
-                    save_vcp_data(edited_df)
-                    st.success("Table changes saved!")
-                    st.markdown("### Updated R & VCP Table")
-                    st.dataframe(edited_df, height=500)
     
     # ----- Aba Admin (somente para usuário admin) -----
     if st.session_state.username.lower() == "admin":
