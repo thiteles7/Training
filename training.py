@@ -617,66 +617,96 @@ if st.session_state.get('logged_in'):
 vcp_index = tabs_list.index("VCP")
 with tabs[vcp_index]:
     st.header("R & VCP Tracking")
-    
-    # Seção para importar a tabela a partir de um arquivo Excel (primeiras 5 colunas)
+
+    # Seção para importar a tabela a partir de um arquivo Excel (apenas as 5 primeiras colunas)
     st.markdown("### Importar Tabela VCP")
-    uploaded_vcp_file = st.file_uploader("Envie o arquivo Excel contendo as 5 primeiras colunas da tabela VCP", type=["xlsx"], key="vcp_table_upload")
+    uploaded_vcp_file = st.file_uploader(
+        "Envie o arquivo Excel contendo as 5 primeiras colunas da tabela VCP", 
+        type=["xlsx"],
+        key="vcp_table_upload"
+    )
     
     if uploaded_vcp_file is not None:
         try:
-            # Lê apenas as colunas de A até E (5 primeiras)
+            # Lê somente as colunas A até E (primeiras 5)
             df_uploaded = pd.read_excel(uploaded_vcp_file, usecols="A:E")
+            # Se as demais colunas (necessárias para os cálculos e uploads) não estiverem presentes, cria-as com valor vazio.
+            for col in ["Date Completed", "Due Date", "Status VCP", "Reading", "Upload"]:
+                if col not in df_uploaded.columns:
+                    df_uploaded[col] = ""
             st.session_state.vcp_data = df_uploaded.copy()
-            # Salva a tabela importada para uso futuro
+            # Persiste os dados para uso em sessões futuras
             df_uploaded.to_csv("vcp_data.csv", index=False)
             st.success("Tabela VCP importada e salva com sucesso!")
         except Exception as e:
             st.error(f"Ocorreu um erro ao ler o arquivo: {e}")
     else:
-        # Caso nenhum arquivo seja enviado, tenta carregar a tabela já salva
+        # Caso nenhum arquivo seja enviado, tenta carregar a tabela previamente salva
         if os.path.exists("vcp_data.csv"):
             df_uploaded = pd.read_csv("vcp_data.csv")
             st.session_state.vcp_data = df_uploaded.copy()
             st.info("Tabela VCP salva anteriormente carregada.")
         else:
             st.info("Nenhuma tabela VCP salva encontrada. Por favor, faça o upload de uma tabela Excel.")
-            # Cria um DataFrame vazio com as colunas esperadas para possibilitar a edição.
-            colunas_padrao = ["Coluna 1", "Coluna 2", "Coluna 3", "Coluna 4", "Coluna 5"]
+            # Cria um DataFrame vazio com colunas padrão
+            colunas_padrao = [
+                "Employee", "Position (English)", "Procedure Number Assigned", 
+                "Procedure Number Alternative", "Date Completed", 
+                "Due Date", "Status VCP", "Reading", "Upload"
+            ]
             st.session_state.vcp_data = pd.DataFrame(columns=colunas_padrao)
             df_uploaded = st.session_state.vcp_data
 
-    # Exibe a tabela importada e permite edição
+    # Exibe a tabela para edição (mantendo as colunas importadas e as criadas)
     st.markdown("### Tabela VCP (ajuste as informações conforme necessário)")
-    edited_df = st.data_editor(df_uploaded, num_rows="dynamic", key="vcp_table_edit")
-    
-    # Botão para salvar as alterações na tabela e realizar os cálculos de VCP (caso deseje incorporar mais lógica)
+    edited_df = st.data_editor(st.session_state.vcp_data, num_rows="dynamic", key="vcp_table_edit")
+
+    # Seção para upload de arquivo relacionado ao funcionário
+    st.markdown("#### Upload File for Employee")
+    if "Employee" in edited_df.columns and not edited_df.empty:
+        selected_employee = st.selectbox("Select Employee", edited_df["Employee"].unique())
+    else:
+        selected_employee = None
+
+    uploaded_file = st.file_uploader("Drag and drop file here", type=["pdf", "docx", "xlsx"], key="vcp_upload")
+    if uploaded_file is not None and selected_employee is not None:
+        idx = edited_df.index[edited_df["Employee"] == selected_employee].tolist()
+        if idx:
+            edited_df.at[idx[0], "Upload"] = uploaded_file.name
+            st.success(f"File '{uploaded_file.name}' uploaded for {selected_employee}.")
+            st.session_state.vcp_data = edited_df.copy()
+
+    # Botão para salvar as alterações e recalcular as colunas de data e status
     if st.button("Salvar Alterações na Tabela VCP"):
-        # Exemplo: Supondo que a 5ª coluna seja "Date Completed" para o cálculo da Due Date e Status VCP
-        # Se a coluna "Date Completed" não existir, o usuário deve incluir essa coluna no Excel importado.
+        def calc_due_date(date_str):
+            try:
+                dt = datetime.strptime(date_str, "%Y-%m-%d")
+                due = dt + pd.Timedelta(days=730)  # Adiciona 730 dias (2 anos) a partir de 'Date Completed'
+                return due.strftime("%Y-%m-%d")
+            except Exception:
+                return ""
+        
         if "Date Completed" in edited_df.columns:
-            def calc_due_date(date_str):
-                try:
-                    dt = datetime.strptime(date_str, "%Y-%m-%d")
-                    due = dt + pd.Timedelta(days=730)  # Exemplo: 730 dias (2 anos) a partir da data completada
-                    return due.strftime("%Y-%m-%d")
-                except Exception:
-                    return ""
-            
+            # Calcula a Due Date com base na coluna 'Date Completed'
             edited_df["Due Date"] = edited_df["Date Completed"].apply(lambda x: calc_due_date(x) if str(x).strip() != "" else "")
+            # Define o Status VCP: "OK" se a Due Date for maior ou igual à data de hoje, "Overdue" se estiver atrasada
             edited_df["Status VCP"] = edited_df["Due Date"].apply(
-                lambda d: "OK" if d != "" and datetime.strptime(d, "%Y-%m-%d").date() >= datetime.today().date()
+                lambda d: "OK" if d != "" and datetime.strptime(d, "%Y-%m-%d").date() >= datetime.today().date() 
                 else ("Overdue" if d != "" else "")
             )
+            # Define a coluna Reading com base no Status VCP
+            edited_df["Reading"] = edited_df["Status VCP"].apply(
+                lambda s: "Completed" if s == "OK" else ("Pending" if s == "Overdue" else "")
+            )
         else:
-            st.warning("A coluna 'Date Completed' não foi encontrada na tabela. Verifique se ela foi importada.")
+            st.warning("A coluna 'Date Completed' não foi encontrada na tabela. Verifique se ela foi importada corretamente.")
         
         st.session_state.vcp_data = edited_df.copy()
-        # Salva a tabela atualizada para uso futuro
+        # Salva a tabela atualizada para futuras sessões
         edited_df.to_csv("vcp_data.csv", index=False)
         st.success("Tabela VCP atualizada e salva!")
         st.markdown("### Tabela VCP Atualizada")
         st.dataframe(edited_df, height=500)
-
     
     # ----- Aba Admin (somente para usuário admin) -----
     if st.session_state.username.lower() == "admin":
