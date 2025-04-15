@@ -405,6 +405,10 @@ if st.session_state.get('logged_in'):
                     if df_final is not None:
                         st.session_state.df_final = df_final
                         st.success("Report processed successfully!")
+
+                        # Inserir a chamada para log do relatório aqui:
+                        log_report(report_type="Training Report", file_name=final_data_path, filter_options="", user=st.session_state.username)
+    
                         st.write("Displaying first 5 records:")
                         st.dataframe(df_final.head())
                         
