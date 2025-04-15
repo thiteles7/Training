@@ -617,20 +617,23 @@ if st.session_state.get('logged_in'):
 vcp_index = tabs_list.index("VCP")
 with tabs[vcp_index]:
     st.header("R & VCP Tracking")
-
+    
+    # Overview de status VCP (OK e Overdue)
+    overview_placeholder = st.empty()  # Placeholder para inserir o overview depois
+    
     # Seção para importar a tabela a partir de um arquivo Excel (primeiras 5 colunas)
     st.markdown("### Importar Tabela VCP")
     uploaded_vcp_file = st.file_uploader(
-        "Envie o arquivo Excel contendo as 5 primeiras colunas da tabela VCP", 
+        "Envie o arquivo Excel contendo as 5 primeiras colunas da tabela VCP",
         type=["xlsx"],
         key="vcp_table_upload"
     )
     
     if uploaded_vcp_file is not None:
         try:
-            # Lê somente as colunas de A até E
+            # Lê somente as colunas A até E
             df_uploaded = pd.read_excel(uploaded_vcp_file, usecols="A:E")
-            # Garante que as colunas adicionais existam, se não estiverem presentes cria com valor vazio
+            # Garante que as colunas adicionais existam (se não, cria com valor vazio)
             for col in ["Date Completed", "Due Date", "Status VCP", "Reading", "Upload"]:
                 if col not in df_uploaded.columns:
                     df_uploaded[col] = ""
@@ -641,14 +644,14 @@ with tabs[vcp_index]:
         except Exception as e:
             st.error(f"Ocorreu um erro ao ler o arquivo: {e}")
     else:
-        # Tenta carregar a tabela previamente salva
+        # Se não houve upload, tenta carregar a tabela salva anteriormente
         if os.path.exists("vcp_data.csv"):
             df_uploaded = pd.read_csv("vcp_data.csv")
             st.session_state.vcp_data = df_uploaded.copy()
             st.info("Tabela VCP salva anteriormente carregada.")
         else:
             st.info("Nenhuma tabela VCP salva encontrada. Por favor, faça o upload de uma tabela Excel.")
-            # Se não existir, cria um DataFrame vazio com as colunas esperadas
+            # Cria um DataFrame vazio com colunas padrão
             colunas_padrao = [
                 "Employee", "Position (English)", "Procedure Number Assigned", 
                 "Procedure Number Alternative", "Date Completed", 
@@ -660,6 +663,27 @@ with tabs[vcp_index]:
     # Exibe a tabela para edição, mantendo as colunas importadas e as criadas
     st.markdown("### Tabela VCP (ajuste as informações conforme necessário)")
     edited_df = st.data_editor(st.session_state.vcp_data, num_rows="dynamic", key="vcp_table_edit")
+    
+    # Atualiza o overview (se houver dados)
+    if not edited_df.empty:
+        total = len(edited_df)
+        # Para o cálculo, se "Date Completed" estiver vazia, consideramos como Overdue
+        overdue_count = edited_df.apply(lambda row: True if str(row.get("Date Completed", "")).strip() == "" 
+                                        else False, axis=1).sum()
+        # Depois do cálculo via botão, os status serão definidos; por ora, overview pode ser calculado após salvar
+        # Assim, só exibimos um overview padrão se já houver status calculado:
+        if "Status VCP" in edited_df.columns and edited_df["Status VCP"].str.strip().ne("").sum() > 0:
+            overdue_count = (edited_df["Status VCP"] == "Overdue").sum()
+            ok_count = (edited_df["Status VCP"] == "OK").sum()
+        else:
+            ok_count = 0
+        perc_overdue = (overdue_count / total * 100) if total > 0 else 0
+        perc_ok = (ok_count / total * 100) if total > 0 else 0
+        overview_placeholder.markdown(
+            f"**Overview:** Total registros: {total} | OK: {perc_ok:.1f}% | Overdue: {perc_overdue:.1f}%"
+        )
+    else:
+        overview_placeholder.markdown("**Overview:** Sem dados para exibir o status.")
 
     # Seção para upload de arquivo associado ao funcionário
     st.markdown("#### Upload File for Employee")
@@ -680,7 +704,7 @@ with tabs[vcp_index]:
     if st.button("Salvar Alterações na Tabela VCP"):
         def calc_due_date(date_input):
             try:
-                # Usa pd.to_datetime para converter de forma robusta qualquer entrada
+                # Se não houver data, retorna vazio para o campo due, mas será tratado como overdue
                 if pd.isna(date_input) or str(date_input).strip() == "":
                     return ""
                 dt = pd.to_datetime(date_input, format="%Y-%m-%d", errors="coerce")
@@ -691,22 +715,23 @@ with tabs[vcp_index]:
             except Exception:
                 return ""
         
-        # Calcula automaticamente "Due Date" a partir de "Date Completed"
+        # Calcula "Due Date" para cada registro a partir de "Date Completed"
         edited_df["Due Date"] = edited_df["Date Completed"].apply(lambda x: calc_due_date(x))
         
-        # Define a função que calcula o "Status VCP" a partir da "Due Date"
+        # Função para definir Status VCP:
+        # Se "Due Date" estiver vazia, consideramos o registro como Overdue.
         def status_vcp(due_date_str):
             try:
                 if due_date_str == "":
-                    return ""
+                    return "Overdue"
                 due_date = datetime.strptime(due_date_str, "%Y-%m-%d").date()
                 today = datetime.today().date()
                 return "OK" if due_date >= today else "Overdue"
             except Exception:
-                return ""
+                return "Overdue"
         
         edited_df["Status VCP"] = edited_df["Due Date"].apply(lambda d: status_vcp(d))
-        edited_df["Reading"] = edited_df["Status VCP"].apply(lambda s: "Completed" if s=="OK" else ("Pending" if s=="Overdue" else ""))
+        edited_df["Reading"] = edited_df["Status VCP"].apply(lambda s: "Completed" if s == "OK" else "Pending")
         
         # Atualiza a sessão e persiste os dados
         st.session_state.vcp_data = edited_df.copy()
@@ -715,6 +740,17 @@ with tabs[vcp_index]:
         st.success("Tabela VCP atualizada e salva!")
         st.markdown("### Tabela VCP Atualizada")
         st.dataframe(edited_df, height=500)
+        
+        # Atualiza o overview com os novos cálculos
+        total = len(edited_df)
+        overdue_count = (edited_df["Status VCP"] == "Overdue").sum()
+        ok_count = (edited_df["Status VCP"] == "OK").sum()
+        perc_overdue = (overdue_count / total * 100) if total > 0 else 0
+        perc_ok = (ok_count / total * 100) if total > 0 else 0
+        overview_placeholder.markdown(
+            f"**Overview:** Total registros: {total} | OK: {perc_ok:.1f}% | Overdue: {perc_overdue:.1f}%"
+        )
+
 
     
     # ----- Aba Admin (somente para usuário admin) -----
