@@ -618,13 +618,10 @@ vcp_index = tabs_list.index("VCP")
 with tabs[vcp_index]:
     st.header("R & VCP Tracking")
     
-    # --- Overview Visual ---
-    overview_placeholder = st.empty()  # Placeholder para o overview com as métricas
-       
     # --- Importação/Persistência da Tabela VCP ---
     st.markdown("### Importar Tabela VCP")
     uploaded_vcp_file = st.file_uploader(
-        "Envie o arquivo Excel contendo as 5 primeiras colunas da tabela VCP",
+        "Envie o arquivo Excel contendo as 5 primeiras colunas da tabela VCP", 
         type=["xlsx"],
         key="vcp_table_upload"
     )
@@ -633,18 +630,18 @@ with tabs[vcp_index]:
         try:
             # Lê apenas as colunas A até E
             df_uploaded = pd.read_excel(uploaded_vcp_file, usecols="A:E")
-            # Garante que todas as colunas necessárias existam; se não, cria com valor vazio
+            # Garante que todas as colunas necessárias existam; se não existirem, cria com valor vazio.
             for col in ["Date Completed", "Due Date", "Status VCP", "Reading", "Upload"]:
                 if col not in df_uploaded.columns:
                     df_uploaded[col] = ""
             st.session_state.vcp_data = df_uploaded.copy()
-            # Salva os dados para uso futuro
+            # Persiste os dados para uso futuro
             df_uploaded.to_csv("vcp_data.csv", index=False)
             st.success("Tabela VCP importada e salva com sucesso!")
         except Exception as e:
             st.error(f"Ocorreu um erro ao ler o arquivo: {e}")
     else:
-        # Se nenhum arquivo enviado, tenta carregar a tabela previamente salva
+        # Caso nenhum upload seja realizado, tenta carregar os dados previamente salvos
         if os.path.exists("vcp_data.csv"):
             df_uploaded = pd.read_csv("vcp_data.csv")
             st.session_state.vcp_data = df_uploaded.copy()
@@ -659,11 +656,48 @@ with tabs[vcp_index]:
             st.session_state.vcp_data = pd.DataFrame(columns=colunas_padrao)
             df_uploaded = st.session_state.vcp_data
 
-    # --- Exibição e Edição da Tabela Única ---
+    # --- Área de Filtro Global ---
+    st.markdown("### Filtro Global")
+    global_filter = st.text_input("Pesquisar na tabela:", "")
+    
+    # Aplica filtro global se houver termo de busca
+    def filter_global(df, search_term):
+        if search_term == "":
+            return df
+        return df[df.apply(lambda row: row.astype(str).str.contains(search_term, case=False).any(), axis=1)]
+    
+    df_filtered = filter_global(st.session_state.vcp_data, global_filter)
+    
+    # --- Cálculo e Atualização Automática dos Campos ---
+    def calc_due_date(date_input):
+        try:
+            # Se estiver vazia ou nula, retorna "" para que o registro seja tratado como Overdue
+            if pd.isna(date_input) or str(date_input).strip() == "":
+                return ""
+            dt = pd.to_datetime(date_input, format="%Y-%m-%d", errors="coerce")
+            if pd.isna(dt):
+                return ""
+            due = dt + pd.Timedelta(days=730)
+            return due.strftime("%Y-%m-%d")
+        except Exception:
+            return ""
+    
+    def status_vcp(due_date_str):
+        try:
+            # Se a data estiver vazia, consideramos como Overdue
+            if due_date_str == "":
+                return "Overdue"
+            due_date = datetime.strptime(due_date_str, "%Y-%m-%d").date()
+            today = datetime.today().date()
+            return "OK" if due_date >= today else "Overdue"
+        except Exception:
+            return "Overdue"
+    
+    # --- Área para Edição da Tabela (única) ---
     st.markdown("### Tabela VCP (Edite as informações conforme necessário)")
-    # A edição será realizada sobre a mesma tabela armazenada na session_state
-    edited_df = st.data_editor(st.session_state.vcp_data, num_rows="dynamic", use_container_width=True, key="vcp_table_edit")
-
+    # Use a tabela já filtrada no caso de busca global
+    edited_df = st.data_editor(df_filtered, num_rows="dynamic", use_container_width=True, key="vcp_table_edit")
+    
     # --- Upload de Arquivo para Funcionário ---
     st.markdown("#### Upload de Arquivo para Funcionário")
     if "Employee" in edited_df.columns and not edited_df.empty:
@@ -678,62 +712,59 @@ with tabs[vcp_index]:
             edited_df.at[idx[0], "Upload"] = uploaded_file.name
             st.success(f"Arquivo '{uploaded_file.name}' enviado para {selected_employee}.")
             st.session_state.vcp_data = edited_df.copy()
-
+    
     # --- Botão para Salvar Alterações com Re-cálculo ---
     if st.button("Salvar Alterações na Tabela VCP"):
-        def calc_due_date(date_input):
-            try:
-                # Se estiver vazia ou nula, retorna "" para que o registro seja tratado como Overdue
-                if pd.isna(date_input) or str(date_input).strip() == "":
-                    return ""
-                dt = pd.to_datetime(date_input, format="%Y-%m-%d", errors="coerce")
-                if pd.isna(dt):
-                    return ""
-                due = dt + pd.Timedelta(days=730)
-                return due.strftime("%Y-%m-%d")
-            except Exception:
-                return ""
-        
-        # Calcula "Due Date" e define "Status VCP" e "Reading"
+        # Recalcula "Due Date" e atualiza "Status VCP" e "Reading" para todos os registros
         edited_df["Due Date"] = edited_df["Date Completed"].apply(lambda x: calc_due_date(x))
-        
-        def status_vcp(due_date_str):
-            try:
-                # Se a data estiver vazia, considera como Overdue
-                if due_date_str == "":
-                    return "Overdue"
-                due_date = datetime.strptime(due_date_str, "%Y-%m-%d").date()
-                today = datetime.today().date()
-                return "OK" if due_date >= today else "Overdue"
-            except Exception:
-                return "Overdue"
-        
         edited_df["Status VCP"] = edited_df["Due Date"].apply(lambda d: status_vcp(d))
-        edited_df["Reading"] = edited_df["Status VCP"].apply(lambda s: "Completed" if s=="OK" else "Pending")
-        
+        edited_df["Reading"] = edited_df["Status VCP"].apply(lambda s: "Completed" if s == "OK" else "Pending")
         st.session_state.vcp_data = edited_df.copy()
         edited_df.to_csv("vcp_data.csv", index=False)
         st.success("Tabela VCP atualizada e salva!")
     
-    # --- Atualização do Overview ---
-    if not edited_df.empty:
-        total = len(edited_df)
-        ok_count = (edited_df["Status VCP"] == "OK").sum()
-        overdue_count = (edited_df["Status VCP"] == "Overdue").sum()
+    # --- Overview no Topo da Página ---
+    # Atualiza as métricas com base na tabela completa (st.session_state.vcp_data)
+    if not st.session_state.vcp_data.empty:
+        total = len(st.session_state.vcp_data)
+        ok_count = (st.session_state.vcp_data["Status VCP"] == "OK").sum()
+        overdue_count = (st.session_state.vcp_data["Status VCP"] == "Overdue").sum()
         perc_ok = (ok_count / total * 100) if total > 0 else 0
         perc_overdue = (overdue_count / total * 100) if total > 0 else 0
         
-        # Utiliza três colunas para mostrar as métricas
+        st.markdown("---")
+        st.markdown("## Overview")
         col1, col2, col3 = st.columns(3)
         col1.metric("Total Registros", total)
         col2.metric("OK (%)", f"{perc_ok:.1f}%")
         col3.metric("Overdue (%)", f"{perc_overdue:.1f}%")
+        st.markdown("---")
     else:
         st.info("Nenhum registro para exibir overview.")
-
+    
+    # --- Botão para Download em Excel ---
+    @st.cache_data(show_spinner=False)
+    def convert_df_to_excel(df):
+        # Converte o DataFrame para um buffer Excel
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            df.to_excel(writer, index=False, sheet_name='VCP')
+            writer.save()
+        processed_data = output.getvalue()
+        return processed_data
+    
+    excel_data = convert_df_to_excel(st.session_state.vcp_data)
+    st.download_button(
+        label="Baixar Tabela VCP em Excel",
+        data=excel_data,
+        file_name="vcp_table.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    
     # --- Exibe a Tabela Atualizada (única) ---
     st.markdown("### Tabela VCP Atualizada")
-    st.dataframe(edited_df, use_container_width=True, height=500)
+    st.dataframe(st.session_state.vcp_data, use_container_width=True, height=500)
+
 
 
     
