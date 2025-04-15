@@ -785,8 +785,9 @@ with tabs[vcp_index]:
                 st.dataframe(df_history)
         except Exception as e:
             st.error(f"Error loading history: {e}")
+
 # ----- Aba Relatório Gerencial -----
-with tabs[-3]:
+with tabs[1]:
     st.header("Relatório Gerencial de Treinamentos e VCPs")
     
     if 'df_final' not in st.session_state or st.session_state.df_final is None:
@@ -794,58 +795,85 @@ with tabs[-3]:
     else:
         df_final = st.session_state.df_final.copy()
         
-        # Cria coluna de data de conclusão (se houver) e filtra registros concluídos
+        # Converte a coluna de data de conclusão para datetime (se já não estiver)
         if "control_data_completo" in df_final.columns:
             df_final['control_data_completo'] = pd.to_datetime(df_final['control_data_completo'], errors='coerce')
             df_final = df_final.dropna(subset=['control_data_completo'])
         else:
-            st.error("Coluna de data de conclusão ('control_data_completo') não encontrada.")
+            st.error("Coluna 'control_data_completo' não encontrada.")
         
-        # Filtra somente treinamentos com status final OK
-        df_concluidos = df_final[df_final['status_final'].str.upper() == "OK"]
+        # Filtra os treinamentos concluídos, considerando status_final == "OK"
+        df_concluidos = df_final[df_final['status_final'].str.upper() == "OK"].copy()
         
-        # Cria coluna de mês/ano com base na data de conclusão
-        df_concluidos['mes_ano'] = df_concluidos['control_data_completo'].dt.to_period('M').astype(str)
+        # Define o agrupamento por mês/ano diretamente a partir da coluna de data
+        total_por_mes = (
+            df_final.groupby(df_final['control_data_completo'].dt.to_period('M'))
+            .size()
+            .reset_index(name="planejado")
+        )
+        # Converte o período para string para exibição
+        total_por_mes['mes_ano'] = total_por_mes['control_data_completo'].astype(str)
         
-        # Cria coluna para diferenciar os tipos de treinamento: 
-        # considera "R & VCP" se 'procedimento_nome' conter "VCP" (ignora caixa), senão "R".
+        concluidos_por_mes = (
+            df_concluidos.groupby(df_concluidos['control_data_completo'].dt.to_period('M'))
+            .size()
+            .reset_index(name="concluidos")
+        )
+        concluidos_por_mes['mes_ano'] = concluidos_por_mes['control_data_completo'].astype(str)
+        
+        # Mescla os resultados por período
+        overview = pd.merge(
+            total_por_mes[['mes_ano', 'planejado']],
+            concluidos_por_mes[['mes_ano', 'concluidos']],
+            on="mes_ano",
+            how="left"
+        )
+        overview['concluidos'] = overview['concluidos'].fillna(0)
+        overview['percentual'] = (overview['concluidos'] / overview['planejado']) * 100
+        
+        st.subheader("Overview Mensal de Conclusão")
+        st.dataframe(overview)
+        
+        # Gráfico de linha – Evolução Mensal do Percentual de Conclusão
+        fig, ax = plt.subplots(figsize=(10, 5))
+        ax.plot(overview['mes_ano'], overview['percentual'], marker='o')
+        ax.set_xlabel("Mês/Ano")
+        ax.set_ylabel("Percentual de Conclusão (%)")
+        ax.set_title("Evolução Mensal dos Treinamentos Concluídos")
+        plt.xticks(rotation=45)
+        st.pyplot(fig)
+        
+        # Separando os treinamentos em "R" e "R & VCP"
         df_concluidos['training_type'] = df_concluidos['procedimento_nome'].apply(
             lambda x: "R & VCP" if pd.notnull(x) and "vcp" in str(x).lower() else "R"
         )
         
-        st.subheader("Treinamentos Concluídos por Mês")
-        
-        # Agrupa dados por mês e tipo de treinamento
-        resumo_mes = df_concluidos.groupby(["mes_ano", "training_type"]).size().reset_index(name="completos")
+        st.subheader("Treinamentos Concluídos por Mês e Tipo")
+        resumo_mes = (
+            df_concluidos.groupby([df_concluidos['control_data_completo'].dt.to_period('M'), 'training_type'])
+            .size()
+            .reset_index(name="completos")
+        )
+        resumo_mes['mes_ano'] = resumo_mes['control_data_completo'].astype(str)
         st.dataframe(resumo_mes)
         
-        # Gráfico de barras – Treinamentos por Mês e Tipo
-        fig1, ax1 = plt.subplots(figsize=(10, 5))
-        for t_type in df_concluidos['training_type'].unique():
-            dados = resumo_mes[resumo_mes["training_type"] == t_type]
-            ax1.bar(dados['mes_ano'], dados['completos'], label=t_type)
-        ax1.set_xlabel("Mês/Ano")
-        ax1.set_ylabel("Número de Treinamentos Concluídos")
-        ax1.set_title("Treinamentos Concluídos por Mês")
-        ax1.legend()
+        # Gráfico de barras – Treinamentos por tipo
+        fig2, ax2 = plt.subplots(figsize=(10, 5))
+        for t in df_concluidos['training_type'].unique():
+            dados = resumo_mes[resumo_mes['training_type'] == t]
+            ax2.bar(dados['mes_ano'], dados['completos'], label=t)
+        ax2.set_xlabel("Mês/Ano")
+        ax2.set_ylabel("Número de Treinamentos Concluídos")
+        ax2.set_title("Treinamentos Concluídos por Mês e Tipo")
+        ax2.legend()
         plt.xticks(rotation=45)
-        st.pyplot(fig1)
+        st.pyplot(fig2)
         
-        st.subheader("Overview Percentual de Execução")
-        
-        # Cálculo de percentuais gerais:
-        # Supondo que o total planejado seja o total de registros (ou você pode ajustar para usar uma métrica de meta)
-        total_planejado = df_final.shape[0]
-        total_concluidos = df_concluidos.shape[0]
-        percentual_geral = (total_concluidos / total_planejado) * 100 if total_planejado > 0 else 0
-        
-        st.write(f"**Total de Treinamentos Planejados:** {total_planejado}")
-        st.write(f"**Total de Treinamentos Concluídos (OK):** {total_concluidos}")
-        st.write(f"**Percentual Global de Conclusão:** {percentual_geral:.2f}%")
-        
-        # Overview específico dos treinamentos do tipo "R & VCP"
+        # Overview específico para treinamentos com VCP
         df_vcp = df_concluidos[df_concluidos['training_type'] == "R & VCP"]
-        total_vcp_planejado = df_final[df_final['procedimento_nome'].apply(lambda x: pd.notnull(x) and "vcp" in str(x).lower())].shape[0]
+        total_vcp_planejado = df_final[
+            df_final['procedimento_nome'].apply(lambda x: pd.notnull(x) and "vcp" in str(x).lower())
+        ].shape[0]
         total_vcp_concluidos = df_vcp.shape[0]
         percentual_vcp = (total_vcp_concluidos / total_vcp_planejado) * 100 if total_vcp_planejado > 0 else 0
         
@@ -853,34 +881,4 @@ with tabs[-3]:
         st.write(f"**Treinamentos (com VCP) Planejados:** {total_vcp_planejado}")
         st.write(f"**Treinamentos com VCP Concluídos:** {total_vcp_concluidos}")
         st.write(f"**Percentual de Conclusão dos VCPs:** {percentual_vcp:.2f}%")
-        
-        # Gráfico de linha – Evolução Percentual Mensal para cada tipo
-        # Calcula o percentual mensal comparando o número de completados com o total do mês
-        total_por_mes = df_final.groupby("mes_ano").size().reset_index(name="planejado")
-        concluidos_por_mes = df_concluidos.groupby(["mes_ano", "training_type"]).size().reset_index(name="concluidos")
-        overview = pd.merge(total_por_mes, concluidos_por_mes, on="mes_ano", how="left")
-        overview['concluidos'] = overview['concluidos'].fillna(0)
-        overview['percentual'] = (overview['concluidos'] / overview['planejado']) * 100
-        
-        fig2, ax2 = plt.subplots(figsize=(10, 5))
-        ax2.plot(overview['mes_ano'], overview['percentual'], marker='o')
-        ax2.set_xlabel("Mês/Ano")
-        ax2.set_ylabel("Percentual de Conclusão (%)")
-        ax2.set_title("Evolução Mensal do Percentual de Treinamentos Concluídos")
-        plt.xticks(rotation=45)
-        st.pyplot(fig2)
-        
-        st.markdown("---")
-        st.subheader("Outras Informações Gerenciais")
-        # Exemplo: tempo médio de conclusão, distribuição por posição, etc.
-        # Aqui você pode incluir qualquer outro cálculo ou gráfico conforme necessário
-        tempo_conclusao = df_concluidos['control_data_completo'].max() - df_concluidos['control_data_completo'].min()
-        st.write(f"**Intervalo de Conclusão:** {tempo_conclusao}")
-        
-        # Gráfico de pizza comparando os dois tipos de treinamento
-        total_R = df_concluidos[df_concluidos['training_type'] == "R"].shape[0]
-        total_RVCP = df_concluidos[df_concluidos['training_type'] == "R & VCP"].shape[0]
-        fig3, ax3 = plt.subplots(figsize=(6, 6))
-        ax3.pie([total_R, total_RVCP], labels=['R', 'R & VCP'], autopct='%1.1f%%', startangle=90)
-        ax3.set_title("Distribuição dos Treinamentos Concluídos")
-        st.pyplot(fig3)
+
